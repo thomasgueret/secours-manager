@@ -116,6 +116,153 @@
     }
     #map-hint.visible { display: block; }
 
+    /* ── FILTER PANEL ── */
+    #filter-toggle {
+      position: absolute; top: 12px; left: 12px;
+      width: 44px; height: 44px; border-radius: 12px;
+      background: var(--bg2); border: 1px solid var(--border);
+      color: var(--text); font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 901;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    #filter-toggle.active { background: var(--accent); border-color: var(--accent); }
+    #filter-toggle .fb-dot {
+      position: absolute; top: -3px; right: -3px;
+      min-width: 16px; height: 16px; padding: 0 4px;
+      background: var(--accent); color: #fff;
+      border-radius: 8px; font-size: 10px; font-weight: 800;
+      display: none; align-items: center; justify-content: center;
+      border: 2px solid var(--bg);
+    }
+    #filter-toggle .fb-dot.show { display: flex; }
+
+    #filter-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 902; display: none;
+    }
+    #filter-backdrop.open { display: block; }
+
+    #filter-panel {
+      position: absolute; top: 0; bottom: 0; left: 0;
+      width: 290px; max-width: 85%;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      z-index: 903;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      display: flex; flex-direction: column;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+    }
+    #filter-panel.open { transform: translateX(0); }
+
+    .fp-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 14px 12px; border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .fp-header span { font-size: 15px; font-weight: 700; }
+    .fp-close {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--bg3); border: none; color: var(--muted);
+      font-size: 18px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .fp-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px; }
+
+    .fp-section { margin-bottom: 20px; }
+    .fp-section-title {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;
+    }
+
+    .fp-switch-row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 14px; margin-bottom: 12px; cursor: pointer;
+    }
+    .fp-switch-row input { width: 0; height: 0; opacity: 0; position: absolute; }
+    .fp-switch {
+      width: 44px; height: 25px; border-radius: 13px;
+      background: var(--bg3); border: 1px solid var(--border);
+      position: relative; transition: background 0.2s; flex-shrink: 0;
+    }
+    .fp-switch::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 19px; height: 19px; border-radius: 50%;
+      background: #fff; transition: transform 0.2s;
+    }
+    .fp-switch-row input:checked + .fp-switch { background: var(--accent); }
+    .fp-switch-row input:checked + .fp-switch::after { transform: translateX(19px); }
+
+    .fp-field {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 14px; gap: 10px;
+    }
+    .fp-field input {
+      width: 80px; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 15px;
+      padding: 8px 10px; text-align: center; outline: none; -webkit-appearance: none;
+    }
+    .fp-field input:focus { border-color: var(--accent); }
+    .fp-field.disabled { opacity: 0.4; pointer-events: none; }
+
+    .fp-mode { display: flex; gap: 4px; margin-bottom: 10px; }
+    .fp-mode-btn {
+      flex: 1; padding: 7px 4px; text-align: center;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; font-size: 11px; font-weight: 700;
+      color: var(--muted); cursor: pointer;
+    }
+    .fp-mode-btn.sel { background: rgba(230,57,70,0.15); border-color: var(--accent); color: var(--accent); }
+
+    .fp-hint {
+      font-size: 10.5px; color: var(--muted); line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .fp-hint b { color: var(--text); }
+
+    .fp-expr {
+      display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+      min-height: 0; margin-bottom: 10px;
+    }
+    .fp-expr:empty { display: none; }
+    .fp-chip {
+      background: rgba(230,57,70,0.15); border: 1px solid var(--accent);
+      color: var(--accent); border-radius: 7px;
+      padding: 3px 8px; font-size: 11px; font-weight: 700;
+    }
+    .fp-op { font-size: 10px; font-weight: 800; color: var(--muted); }
+
+    .fp-veh-list { display: flex; flex-direction: column; gap: 5px; }
+    .fp-veh-row {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 9px; padding: 9px 10px; cursor: pointer;
+      font-size: 13px; user-select: none;
+    }
+    .fp-veh-row .fvr-emoji { font-size: 16px; width: 20px; text-align: center; }
+    .fp-veh-row .fvr-name { flex: 1; }
+    .fp-veh-row .fvr-count {
+      font-size: 11px; color: var(--muted);
+      background: var(--bg2); border-radius: 6px; padding: 1px 7px;
+    }
+    .fp-veh-row.sel { background: rgba(230,57,70,0.15); border-color: var(--accent); }
+    .fp-veh-row.sel .fvr-name { color: var(--accent); font-weight: 700; }
+    .fp-veh-row.sel .fvr-order {
+      font-size: 10px; font-weight: 800; color: var(--accent);
+    }
+
+    .fp-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 14px 0; }
+
+    .fp-reset {
+      width: 100%; margin-top: 12px; padding: 10px;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 13px; font-weight: 600;
+      cursor: pointer;
+    }
+    .fp-reset:active { background: var(--border); }
+
     /* ── DATA VIEW ── */
     #view-data {
       overflow-y: auto;
@@ -495,6 +642,53 @@
     <div id="view-map" class="view active">
       <div id="map"></div>
       <div id="map-hint">Touchez la carte pour placer le bâtiment</div>
+
+      <button id="filter-toggle" onclick="toggleFilterPanel()">
+        ⚙️<span class="fb-dot" id="filter-count"></span>
+      </button>
+
+      <div id="filter-backdrop" onclick="toggleFilterPanel()"></div>
+
+      <div id="filter-panel">
+        <div class="fp-header">
+          <span>Filtres &amp; options</span>
+          <button class="fp-close" onclick="toggleFilterPanel()">×</button>
+        </div>
+        <div class="fp-body">
+
+          <div class="fp-section">
+            <div class="fp-section-title">Rayon d'action</div>
+            <label class="fp-switch-row">
+              <span>Afficher les rayons</span>
+              <input type="checkbox" id="radius-toggle" onchange="onRadiusToggle()">
+              <span class="fp-switch"></span>
+            </label>
+            <div class="fp-field" id="radius-field">
+              <span>Rayon (km)</span>
+              <input type="number" id="radius-km" value="10" min="1" max="2000"
+                     oninput="onRadiusKm()">
+            </div>
+          </div>
+
+          <div class="fp-section">
+            <div class="fp-section-title">Filtre par véhicule</div>
+            <div class="fp-hint">
+              Touchez un véhicule pour filtrer. <b>Mode</b> (ou touches PC) :
+              <b>ET</b> = Ctrl+clic, <b>OU</b> = Maj+clic.
+            </div>
+            <div class="fp-mode" id="fp-mode">
+              <div class="fp-mode-btn sel" data-mode="replace" onclick="setAddMode('replace')">Remplacer</div>
+              <div class="fp-mode-btn"     data-mode="and"     onclick="setAddMode('and')">ET</div>
+              <div class="fp-mode-btn"     data-mode="or"      onclick="setAddMode('or')">OU</div>
+            </div>
+            <div class="fp-expr" id="filter-expr"></div>
+            <div class="fp-veh-list" id="vehicle-filter-list"></div>
+            <button class="fp-reset" onclick="clearFilter()">Réinitialiser le filtre</button>
+          </div>
+
+        </div>
+      </div>
+
       <button id="map-add-btn" onclick="togglePlacing()">+</button>
     </div>
 
@@ -692,6 +886,13 @@ let confirmCb  = null;
 let mapInst    = null;
 let markers    = {};
 
+// Filtres & options carte
+let filterTerms   = [];        // [{type, op}] op: null | 'and' | 'or'
+let addMode       = 'replace'; // mode tactile : 'replace' | 'and' | 'or'
+let radiusEnabled = false;
+let radiusKm      = 10;
+let radiusLayers  = [];
+
 // ═══════════════════════════════
 //  STORAGE
 // ═══════════════════════════════
@@ -716,7 +917,8 @@ function initMap() {
     return;
   }
 
-  mapInst = L.map('map', { center:[46.6,2.3], zoom:6, zoomControl:true });
+  mapInst = L.map('map', { center:[46.6,2.3], zoom:6, zoomControl:false });
+  L.control.zoom({ position:'topright' }).addTo(mapInst);
 
   // Fond de carte sombre (CARTO / OpenStreetMap)
   const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -736,6 +938,8 @@ function initMap() {
 
   mapInst.on('click', onMapClick);
   buildings.forEach(b => placeMarker(b));
+  refreshFilterUI();
+  applyFilters();
 
   // Leaflet doit recalculer la taille une fois le layout du flex appliqué
   setTimeout(() => mapInst.invalidateSize(), 120);
@@ -780,7 +984,167 @@ function removeMarker(id) {
   if (markers[id]) { markers[id].remove(); delete markers[id]; }
 }
 
-function refreshMarker(b) { removeMarker(b.id); placeMarker(b); }
+function refreshMarker(b) { removeMarker(b.id); placeMarker(b); applyFilters(); }
+
+function setMarkerVisible(id, vis) {
+  const m = markers[id];
+  if (!m || !mapInst) return;
+  const on = mapInst.hasLayer(m);
+  if (vis && !on) m.addTo(mapInst);
+  else if (!vis && on) m.remove();
+}
+
+// ═══════════════════════════════
+//  FILTRES & OPTIONS CARTE
+// ═══════════════════════════════
+function toggleFilterPanel() {
+  const open = document.getElementById('filter-panel').classList.toggle('open');
+  document.getElementById('filter-backdrop').classList.toggle('open', open);
+  document.getElementById('filter-toggle').classList.toggle('active', open);
+  if (open) refreshFilterUI();
+}
+
+function setAddMode(mode) {
+  addMode = mode;
+  document.querySelectorAll('#fp-mode .fp-mode-btn').forEach(el =>
+    el.classList.toggle('sel', el.dataset.mode === mode));
+}
+
+// Tous les types de véhicules présents dans les bâtiments, avec leur nombre
+function allVehicleTypes() {
+  const counts = {};
+  buildings.forEach(b => (b.vehicules||[]).forEach(v => {
+    counts[v.type] = (counts[v.type]||0) + 1;
+  }));
+  return Object.keys(counts).sort().map(t => ({ type:t, count:counts[t] }));
+}
+
+function onVehicleFilterClick(type, ev) {
+  let op;
+  if (ev && (ev.ctrlKey || ev.metaKey)) op = 'and';
+  else if (ev && ev.shiftKey)           op = 'or';
+  else op = addMode; // mode tactile
+
+  const idx = filterTerms.findIndex(t => t.type === type);
+
+  if (op === 'replace') {
+    // clic simple : si déjà seul sélectionné -> on enlève, sinon on remplace
+    if (filterTerms.length === 1 && idx === 0) filterTerms = [];
+    else filterTerms = [{ type, op:null }];
+  } else {
+    if (idx >= 0) {
+      // déjà présent : on le retire
+      filterTerms.splice(idx, 1);
+      if (filterTerms.length) filterTerms[0].op = null;
+    } else {
+      filterTerms.push({ type, op: filterTerms.length ? op : null });
+    }
+  }
+  refreshFilterUI();
+  applyFilters();
+}
+
+// Découpe les termes en groupes OU ; chaque groupe = ensemble ET
+function filterGroups() {
+  const groups = [];
+  let cur = null;
+  filterTerms.forEach((t, i) => {
+    if (i === 0 || t.op === 'or') { cur = [t.type]; groups.push(cur); }
+    else cur.push(t.type); // 'and'
+  });
+  return groups;
+}
+
+function buildingMatchesFilter(b) {
+  if (!filterTerms.length) return true;
+  const have = new Set((b.vehicules||[]).map(v => v.type));
+  // match si AU MOINS un groupe est entièrement satisfait (ET dans le groupe)
+  return filterGroups().some(g => g.every(type => have.has(type)));
+}
+
+function visibleBuildingIds() {
+  const s = new Set();
+  buildings.forEach(b => { if (buildingMatchesFilter(b)) s.add(b.id); });
+  return s;
+}
+
+function applyFilters() {
+  if (!mapInst) return;
+  const vis = visibleBuildingIds();
+  buildings.forEach(b => setMarkerVisible(b.id, vis.has(b.id)));
+  updateRadiusCircles(vis);
+  // badge compteur sur le bouton
+  const dot = document.getElementById('filter-count');
+  if (dot) {
+    if (filterTerms.length) { dot.textContent = filterTerms.length; dot.classList.add('show'); }
+    else dot.classList.remove('show');
+  }
+}
+
+function updateRadiusCircles(visSet) {
+  radiusLayers.forEach(c => c.remove());
+  radiusLayers = [];
+  if (!radiusEnabled || !mapInst) return;
+  const r = Math.max(0, radiusKm) * 1000;
+  if (!r) return;
+  buildings.forEach(b => {
+    if (!visSet.has(b.id)) return;
+    const t = TYPES[b.type] || TYPES.pompiers;
+    const c = L.circle([b.lat, b.lng], {
+      radius: r, color: t.color, weight: 1,
+      opacity: 0.55, fillColor: t.color, fillOpacity: 0.08
+    }).addTo(mapInst);
+    radiusLayers.push(c);
+  });
+}
+
+function onRadiusToggle() {
+  radiusEnabled = document.getElementById('radius-toggle').checked;
+  document.getElementById('radius-field').classList.toggle('disabled', !radiusEnabled);
+  applyFilters();
+}
+
+function onRadiusKm() {
+  const v = parseFloat(document.getElementById('radius-km').value);
+  radiusKm = (isNaN(v) || v <= 0) ? 0 : v;
+  if (radiusEnabled) updateRadiusCircles(visibleBuildingIds());
+}
+
+function clearFilter() {
+  filterTerms = [];
+  setAddMode('replace');
+  refreshFilterUI();
+  applyFilters();
+}
+
+function refreshFilterUI() {
+  // expression courante
+  const expr = document.getElementById('filter-expr');
+  if (expr) {
+    expr.innerHTML = filterTerms.map((t, i) =>
+      (i ? `<span class="fp-op">${t.op === 'or' ? 'OU' : 'ET'}</span>` : '') +
+      `<span class="fp-chip">${VEH_EMOJI[t.type]||'🚗'} ${t.type}</span>`
+    ).join('');
+  }
+  // liste des véhicules disponibles
+  const list = document.getElementById('vehicle-filter-list');
+  if (!list) return;
+  const types = allVehicleTypes();
+  if (!types.length) {
+    list.innerHTML = `<div class="fp-empty">Aucun véhicule dans vos bâtiments pour le moment.</div>`;
+    return;
+  }
+  list.innerHTML = types.map(({type, count}) => {
+    const idx = filterTerms.findIndex(t => t.type === type);
+    const sel = idx >= 0;
+    return `<div class="fp-veh-row${sel?' sel':''}" onclick="onVehicleFilterClick('${type.replace(/'/g,"\\'")}', event)">
+      <span class="fvr-emoji">${VEH_EMOJI[type]||'🚗'}</span>
+      <span class="fvr-name">${type}</span>
+      ${sel?`<span class="fvr-order">#${idx+1}</span>`:''}
+      <span class="fvr-count">${count}</span>
+    </div>`;
+  }).join('');
+}
 
 // ═══════════════════════════════
 //  NAVIGATION
@@ -1039,6 +1403,7 @@ function saveBuilding() {
     buildings.push(nb);
     pendingLL=null;
     placeMarker(nb); save();
+    applyFilters();
     closeModal('modal-bld');
     switchMain('map');
   }
@@ -1060,6 +1425,7 @@ function deleteBuilding() {
       removeMarker(id);
       buildings=buildings.filter(b=>b.id!==id);
       save();
+      refreshFilterUI(); applyFilters();
       closeModal('modal-bld');
       closeBuilding();
       renderDataList();
@@ -1090,6 +1456,7 @@ function saveVehicle() {
   save();
   closeModal('modal-veh');
   renderVehicules(b);
+  refreshFilterUI(); applyFilters();
 }
 
 function delVehicle(vid) {
@@ -1099,6 +1466,7 @@ function delVehicle(vid) {
     b.vehicules=(b.vehicules||[]).filter(v=>v.id!==vid);
     b.placeGarageOccupe=b.vehicules.length;
     save(); renderVehicules(b);
+    refreshFilterUI(); applyFilters();
   });
 }
 
@@ -1180,6 +1548,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   load();
   initMap();
   renderDataList();
+  document.getElementById('radius-field').classList.add('disabled');
 });
 
 // Service worker (réseau prioritaire) pour la mise à jour automatique
