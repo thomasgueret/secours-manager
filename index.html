@@ -84,7 +84,9 @@
     .view.active { display: flex; }
 
     /* ── MAP VIEW ── */
-    #view-map { position: relative; }
+    /* #view-map garde position:absolute + inset:0 hérités de .view —
+       NE PAS remettre position:relative ici, sinon la hauteur s'effondre à 0
+       et la carte disparaît. Le bouton + (absolute) s'ancre sur cette .view. */
     #map { flex: 1; width: 100%; min-height: 0; background: #1a1a2e; }
 
     #map-add-btn {
