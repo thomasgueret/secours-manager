@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>SecoursSim Manager</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    :root {
+      --bg:       #0d1117;
+      --bg2:      #161b22;
+      --bg3:      #21262d;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #e63946;
+      --accent2:  #c1121f;
+      --blue:     #58a6ff;
+      --green:    #3fb950;
+      --orange:   #f0883e;
+      --purple:   #bc8cff;
+      --yellow:   #d29922;
+      --safe-top:    env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;
+    }
+    @supports (-webkit-touch-callout: none) {
+      /* iOS Safari uniquement : remplit la zone visible réelle */
+      #app { height: -webkit-fill-available; }
+    }
+
+    /* ── HEADER ── */
+    #header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: calc(var(--safe-top) + 10px) 16px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #header-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    #header-title span { color: var(--accent); }
+    .btn-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 17px;
+    }
+    .btn-icon:active { background: var(--border); }
+
+    /* ── CONTENT ── */
+    #content { flex: 1; overflow: hidden; position: relative; }
+
+    .view {
+      position: absolute; inset: 0;
+      display: none; flex-direction: column;
+    }
+    .view.active { display: flex; }
+
+    /* ── MAP VIEW ── */
+    #view-map { position: relative; }
+    #map { flex: 1; width: 100%; min-height: 0; background: #1a1a2e; }
+
+    #map-add-btn {
+      position: absolute; bottom: 20px; right: 16px;
+      width: 52px; height: 52px;
+      border-radius: 16px;
+      background: var(--accent);
+      color: white; font-size: 28px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 20px rgba(230,57,70,0.45);
+      cursor: pointer; z-index: 900; border: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #map-add-btn:active { transform: scale(0.94); }
+    #map-add-btn.placing {
+      background: var(--orange);
+      box-shadow: 0 4px 20px rgba(240,136,62,0.45);
+    }
+
+    #map-hint {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(240,136,62,0.92);
+      color: white; padding: 8px 18px;
+      border-radius: 20px; font-size: 13px; font-weight: 600;
+      z-index: 900; white-space: nowrap; display: none;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+    #map-hint.visible { display: block; }
+
+    /* ── DATA VIEW ── */
+    #view-data {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px;
+    }
+
+    .section-title {
+      font-size: 11px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px;
+      padding: 10px 4px 6px; margin-top: 4px;
+    }
+
+    .building-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 13px 14px;
+      display: flex; align-items: center; gap: 12px;
+      cursor: pointer; margin-bottom: 8px;
+      transition: background 0.12s;
+    }
+    .building-card:active { background: var(--bg3); }
+
+    .bc-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .bc-info { flex: 1; min-width: 0; }
+    .bc-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bc-sub  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .bc-stats { display: flex; gap: 6px; flex-shrink: 0; }
+    .stat-pill {
+      background: var(--bg3);
+      border-radius: 8px; padding: 4px 8px;
+      font-size: 11px; color: var(--muted); text-align: center;
+    }
+    .stat-pill strong { color: var(--text); font-size: 14px; font-weight: 700; display: block; }
+
+    /* ── BOTTOM NAV ── */
+    #bottom-nav {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      display: flex;
+      padding-bottom: var(--safe-bottom);
+      flex-shrink: 0;
+    }
+    .nav-tab {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; padding: 9px 0 7px;
+      cursor: pointer; gap: 3px;
+    }
+    .nav-tab .ni { font-size: 22px; }
+    .nav-tab .nl { font-size: 10px; font-weight: 600; color: var(--muted); }
+    .nav-tab.active .nl { color: var(--accent); }
+
+    /* ── BUILDING DETAIL VIEW ── */
+    #view-building {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      z-index: 500;
+      display: none; flex-direction: column;
+    }
+    #view-building.open { display: flex; }
+
+    #bld-header {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: calc(var(--safe-top) + 10px) 14px 0;
+      flex-shrink: 0;
+    }
+    #bld-header-top {
+      display: flex; align-items: center; gap: 10px; padding-bottom: 10px;
+    }
+    #back-btn {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 20px; flex-shrink: 0;
+    }
+    #bld-title-wrap { flex: 1; min-width: 0; }
+    #bld-title { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #bld-subtitle { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    #bld-edit-btn {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 15px; flex-shrink: 0;
+    }
+
+    /* Tab bar */
+    #bld-tabs { display: flex; }
+    .bld-tab {
+      flex: 1; text-align: center; padding: 10px;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      cursor: pointer; position: relative;
+    }
+    .bld-tab.active { color: var(--accent); }
+    .bld-tab.active::after {
+      content: ''; position: absolute; bottom: 0; left: 15%; right: 15%;
+      height: 2px; background: var(--accent); border-radius: 2px;
+    }
+
+    #bld-content {
+      flex: 1; overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 14px;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Info grid */
+    .i-section { margin-bottom: 16px; }
+    .i-section-title {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px;
+    }
+
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .info-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px;
+    }
+    .info-card .ic-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .info-card .ic-val { font-size: 20px; font-weight: 800; }
+
+    .info-row {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .info-row .ir-label { font-size: 13px; color: var(--muted); }
+    .info-row .ir-val { font-size: 14px; font-weight: 600; }
+
+    /* Progress */
+    .progress-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 8px;
+    }
+    .progress-top {
+      display: flex; justify-content: space-between;
+      font-size: 13px; margin-bottom: 8px;
+    }
+    .progress-top .pt-label { color: var(--muted); }
+    .progress-bar { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+    /* Vehicles */
+    .vehicle-row {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .vehicle-row .vr-icon { font-size: 22px; width: 34px; text-align: center; flex-shrink: 0; }
+    .vehicle-row .vr-info { flex: 1; }
+    .vehicle-row .vr-name { font-size: 14px; font-weight: 600; }
+    .vehicle-row .vr-type { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .vehicle-row .vr-del {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: rgba(220,38,38,0.12); border: none;
+      color: #ef4444; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+    }
+
+    .add-row-btn {
+      width: 100%; padding: 14px;
+      background: var(--bg2); border: 1px dashed var(--border);
+      border-radius: 12px; color: var(--muted);
+      font-size: 14px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      cursor: pointer; margin-top: 2px;
+    }
+    .add-row-btn:active { background: var(--bg3); }
+
+    /* Grades */
+    .grade-row {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 0;
+    }
+    .grade-row .gr-icon { font-size: 20px; width: 30px; flex-shrink: 0; }
+    .grade-row .gr-name { flex: 1; font-size: 15px; font-weight: 500; margin-left: 8px; }
+    .grade-counter { display: flex; align-items: center; gap: 14px; }
+    .ctr-btn {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; user-select: none;
+    }
+    .ctr-btn:active { background: var(--border); }
+    .ctr-val { font-size: 17px; font-weight: 800; min-width: 28px; text-align: center; }
+
+    /* ── MODALS ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      z-index: 800;
+      display: none; align-items: flex-end;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal-sheet {
+      width: 100%;
+      background: var(--bg2);
+      border-radius: 20px 20px 0 0;
+      padding: 0 0 calc(var(--safe-bottom) + 12px);
+      max-height: 92vh;
+      display: flex; flex-direction: column;
+      animation: slideUp 0.22s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(100%); }
+      to   { transform: translateY(0); }
+    }
+
+    .modal-handle {
+      width: 40px; height: 4px; background: var(--border);
+      border-radius: 2px; margin: 12px auto 0; flex-shrink: 0;
+    }
+    .modal-header {
+      padding: 14px 16px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .modal-title { font-size: 16px; font-weight: 700; }
+    .modal-close {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--bg3); border: none;
+      color: var(--muted); font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    .modal-body {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 14px; display: flex; flex-direction: column; gap: 12px;
+    }
+
+    /* Form */
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-label {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .form-input, .form-select {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text);
+      font-size: 16px; padding: 11px 13px;
+      width: 100%; outline: none; -webkit-appearance: none;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--accent); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Type grid */
+    .type-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+    .type-opt {
+      background: var(--bg3); border: 2px solid var(--border);
+      border-radius: 11px; padding: 9px 5px;
+      text-align: center; cursor: pointer;
+    }
+    .type-opt.sel { border-color: var(--accent); background: rgba(230,57,70,0.1); }
+    .type-opt .to-emoji { font-size: 20px; display: block; margin-bottom: 3px; }
+    .type-opt .to-name { font-size: 9px; color: var(--muted); font-weight: 600; }
+    .type-opt.sel .to-name { color: var(--accent); }
+
+    /* Buttons */
+    .btn-primary {
+      background: var(--accent); color: white;
+      border: none; border-radius: 12px;
+      padding: 14px; font-size: 15px; font-weight: 700;
+      width: 100%; cursor: pointer; margin-top: 2px;
+    }
+    .btn-primary:active { background: var(--accent2); }
+    .btn-danger {
+      background: rgba(220,38,38,0.1);
+      color: #ef4444;
+      border: 1px solid rgba(220,38,38,0.25);
+      border-radius: 12px; padding: 12px;
+      font-size: 14px; font-weight: 700;
+      width: 100%; cursor: pointer;
+    }
+
+    /* Empty state */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 60px 24px; gap: 10px; text-align: center;
+    }
+    .empty-state .es-icon { font-size: 48px; }
+    .empty-state .es-title { font-size: 16px; font-weight: 700; }
+    .empty-state .es-text { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* Confirm */
+    #confirm-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.82);
+      z-index: 1000;
+      display: none; align-items: center; justify-content: center; padding: 20px;
+    }
+    #confirm-overlay.open { display: flex; }
+    #confirm-box {
+      background: var(--bg2); border-radius: 16px;
+      padding: 22px; width: 100%; max-width: 320px; text-align: center;
+    }
+    #confirm-ttl { font-size: 16px; font-weight: 700; margin-bottom: 7px; }
+    #confirm-msg { font-size: 13px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
+    .confirm-btns { display: flex; gap: 10px; }
+    .conf-cancel {
+      flex: 1; padding: 12px;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 14px; cursor: pointer;
+    }
+    .conf-ok {
+      flex: 1; padding: 12px;
+      background: var(--accent); border: none;
+      border-radius: 10px; color: white; font-size: 14px; font-weight: 700; cursor: pointer;
+    }
+
+    /* Leaflet dark overrides */
+    .leaflet-container { background: #1a1a2e; }
+    .leaflet-control-zoom a {
+      background: var(--bg2) !important; color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
+    .leaflet-control-zoom a:hover { background: var(--bg3) !important; }
+    .leaflet-control-attribution {
+      background: rgba(13,17,23,0.7) !important; color: var(--muted) !important; font-size: 10px;
+    }
+    .leaflet-control-attribution a { color: var(--muted) !important; }
+
+    /* Map markers */
+    .map-marker {
+      width: 36px; height: 36px;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+      border: 2px solid rgba(255,255,255,0.15);
+    }
+    .map-marker span {
+      transform: rotate(45deg);
+      font-size: 15px; display: block;
+      margin-top: -2px; margin-left: 2px;
+    }
+
+    /* Status dot */
+    .status-dot {
+      display: inline-block; width: 7px; height: 7px;
+      border-radius: 50%; margin-right: 4px;
+    }
+
+    ::-webkit-scrollbar { width: 0; height: 0; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div id="header">
+    <div id="header-title">🚨 <span>Secours</span>Sim</div>
+    <div style="display:flex;gap:8px">
+      <div class="btn-icon" onclick="showGlobalStats()" title="Statistiques globales">📊</div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="content">
+
+    <!-- MAP VIEW -->
+    <div id="view-map" class="view active">
+      <div id="map"></div>
+      <div id="map-hint">Touchez la carte pour placer le bâtiment</div>
+      <button id="map-add-btn" onclick="togglePlacing()">+</button>
+    </div>
+
+    <!-- DATA VIEW -->
+    <div id="view-data" class="view">
+      <div id="data-list" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px"></div>
+    </div>
+
+  </div>
+
+  <!-- BUILDING DETAIL -->
+  <div id="view-building">
+    <div id="bld-header">
+      <div id="bld-header-top">
+        <div id="back-btn" onclick="closeBuilding()">‹</div>
+        <div id="bld-title-wrap">
+          <div id="bld-title">—</div>
+          <div id="bld-subtitle">—</div>
+        </div>
+        <div id="bld-edit-btn" onclick="editCurrentBuilding()">✏️</div>
+      </div>
+      <div id="bld-tabs">
+        <div class="bld-tab active" onclick="switchTab('general')">Général</div>
+        <div class="bld-tab"        onclick="switchTab('vehicules')">Véhicules</div>
+        <div class="bld-tab"        onclick="switchTab('personnels')">Personnels</div>
+      </div>
+    </div>
+    <div id="bld-content">
+      <div id="tab-general"   class="tab-panel active"></div>
+      <div id="tab-vehicules" class="tab-panel"></div>
+      <div id="tab-personnels" class="tab-panel"></div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <div id="bottom-nav">
+    <div class="nav-tab active" id="nav-map"  onclick="switchMain('map')">
+      <span class="ni">🗺️</span><span class="nl">Carte</span>
+    </div>
+    <div class="nav-tab"       id="nav-data" onclick="switchMain('data')">
+      <span class="ni">📋</span><span class="nl">Données</span>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Bâtiment -->
+<div class="modal-overlay" id="modal-bld">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="modal-bld-ttl">Nouveau bâtiment</div>
+      <button class="modal-close" onclick="closeModal('modal-bld')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <div class="form-label">Nom du bâtiment *</div>
+        <input class="form-input" id="f-nom" type="text" placeholder="Ex : CS Paris 10, CRS Bordeaux…">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Service</div>
+        <div class="type-grid" id="type-grid"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <div class="form-label">Niveau</div>
+          <input class="form-input" id="f-niveau" type="number" min="1" max="99" value="1">
+        </div>
+        <div class="form-group">
+          <div class="form-label">Extension</div>
+          <input class="form-input" id="f-ext" type="text" placeholder="Optionnel">
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="form-label">Spécialité</div>
+        <input class="form-input" id="f-spe" type="text" placeholder="Ex : Montagne, ULIS, GRIMP…">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <div class="form-label">Places Garage</div>
+          <input class="form-input" id="f-garage" type="number" min="0" value="10">
+        </div>
+        <div class="form-group">
+          <div class="form-label">Places Vestiaire</div>
+          <input class="form-input" id="f-vest" type="number" min="0" value="20">
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveBuilding()">Créer le bâtiment</button>
+      <button class="btn-danger" id="del-bld-btn" style="display:none" onclick="deleteBuilding()">🗑 Supprimer ce bâtiment</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Véhicule -->
+<div class="modal-overlay" id="modal-veh">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Ajouter un véhicule</div>
+      <button class="modal-close" onclick="closeModal('modal-veh')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <div class="form-label">Nom / Immatriculation *</div>
+        <input class="form-input" id="veh-nom" type="text" placeholder="Ex : FPT-01, VSAV-3…">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Type de véhicule</div>
+        <select class="form-select" id="veh-type"></select>
+      </div>
+      <div class="form-group">
+        <div class="form-label">Statut</div>
+        <select class="form-select" id="veh-statut">
+          <option value="disponible">✅ Disponible</option>
+          <option value="intervention">🟠 En intervention</option>
+          <option value="maintenance">🟡 En maintenance</option>
+          <option value="indisponible">🔴 Indisponible</option>
+        </select>
+      </div>
+      <button class="btn-primary" onclick="saveVehicle()">Ajouter le véhicule</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM -->
+<div id="confirm-overlay">
+  <div id="confirm-box">
+    <div id="confirm-ttl">Confirmer</div>
+    <div id="confirm-msg"></div>
+    <div class="confirm-btns">
+      <button class="conf-cancel" onclick="closeConfirm(false)">Annuler</button>
+      <button class="conf-ok"     onclick="closeConfirm(true)">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════
+const TYPES = {
+  pompiers:      { label: 'Pompiers',        emoji: '🚒', color: '#dc2626' },
+  police:        { label: 'Police',          emoji: '🚔', color: '#1d4ed8' },
+  gendarmerie:   { label: 'Gendarmerie',     emoji: '⚜️', color: '#1e3a8a' },
+  hopital:       { label: 'Hôpital',         emoji: '🏥', color: '#16a34a' },
+  secu_civile:   { label: 'Séc. Civile',     emoji: '🟠', color: '#ea580c' },
+  services_tech: { label: 'Serv. Tech.',     emoji: '🔧', color: '#475569' },
+  prison:        { label: 'Prison',          emoji: '⚖️', color: '#7c3aed' },
+};
+
+const VEHICLES = {
+  pompiers:      ['FPT','FPTL','FPTSR','EPA','EPSA','EPPA','VSR','VSAV','CCR','MEA','BEA','VLHR','VTU','CCRM','Moto pompier'],
+  police:        ['VPI','BPM','Fourgon','Moto','VTT','Véhicule banalisé','Brigades'],
+  gendarmerie:   ['Patrouille','Moto gendarmerie','Fourgon','Véhicule banalisé','PSIG'],
+  hopital:       ['SMUR','Ambulance','VSL','Hélicoptère SAMU'],
+  secu_civile:   ['Hélicoptère SC','Avion bombardier','UIISC','Véhicule SC'],
+  services_tech: ['Camion','Pelleteuse','Grue','Fourgon technique','Nacelle'],
+  prison:        ['Fourgon','Véhicule de patrouille'],
+};
+
+const VEH_EMOJI = {
+  FPT:'🚒',FPTL:'🚒',FPTSR:'🚒',EPA:'🪜',EPSA:'🪜',EPPA:'🪜',
+  VSAV:'🚑',VSR:'🚑',SMUR:'🚑',Ambulance:'🚑',
+  'Hélicoptère SAMU':'🚁','Hélicoptère SC':'🚁','Avion bombardier':'✈️',
+  BEA:'🏗️',MEA:'🏗️',Grue:'🏗️',Nacelle:'🏗️',Pelleteuse:'🚜',
+  Moto:'🏍️','Moto pompier':'🏍️','Moto gendarmerie':'🏍️',
+  Fourgon:'🚐','Fourgon technique':'🚐',UIISC:'🚐',
+};
+
+const STATUS_COLOR = {
+  disponible:'#3fb950',intervention:'#f0883e',maintenance:'#d29922',indisponible:'#8b949e'
+};
+const STATUS_LABEL = {
+  disponible:'Disponible',intervention:'En intervention',maintenance:'Maintenance',indisponible:'Indisponible'
+};
+
+const GRADES = [
+  { id:'sapeur',    label:'Sapeur',     emoji:'🪖' },
+  { id:'caporal',   label:'Caporal',    emoji:'🔰' },
+  { id:'sergent',   label:'Sergent',    emoji:'⭐' },
+  { id:'adjudant',  label:'Adjudant',   emoji:'🌟' },
+  { id:'lieutenant',label:'Lieutenant', emoji:'✨' },
+];
+
+// ═══════════════════════════════
+//  STATE
+// ═══════════════════════════════
+let buildings = [];
+let curBldId   = null;
+let editBldId  = null;
+let selType    = 'pompiers';
+let curTab     = 'general';
+let placing    = false;
+let pendingLL  = null;
+let confirmCb  = null;
+let mapInst    = null;
+let markers    = {};
+
+// ═══════════════════════════════
+//  STORAGE
+// ═══════════════════════════════
+const KEY = 'secourssim_v1';
+function save() { localStorage.setItem(KEY, JSON.stringify(buildings)); }
+function load() {
+  try { buildings = JSON.parse(localStorage.getItem(KEY)) || []; }
+  catch { buildings = []; }
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+// ═══════════════════════════════
+//  MAP
+// ═══════════════════════════════
+function initMap() {
+  if (typeof L === 'undefined') {
+    // Leaflet n'a pas pu être chargé (réseau bloqué hors-ligne, etc.)
+    document.getElementById('map').innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;height:100%;'+
+      'padding:24px;text-align:center;color:#8b949e;font-size:14px">'+
+      '⚠️ Impossible de charger la librairie de carte.<br>Vérifiez votre connexion Internet puis rouvrez l\'application.</div>';
+    return;
+  }
+
+  mapInst = L.map('map', { center:[46.6,2.3], zoom:6, zoomControl:true });
+
+  // Fond de carte sombre (CARTO / OpenStreetMap)
+  const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution:'© OpenStreetMap © CARTO',
+    subdomains:'abcd', maxZoom:20
+  });
+  // Repli : tuiles OpenStreetMap standard si le fond sombre échoue
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'© OpenStreetMap', maxZoom:19
+  });
+
+  dark.on('tileerror', function once() {
+    dark.off('tileerror', once);
+    if (!mapInst.hasLayer(osm)) { mapInst.removeLayer(dark); osm.addTo(mapInst); }
+  });
+  dark.addTo(mapInst);
+
+  mapInst.on('click', onMapClick);
+  buildings.forEach(b => placeMarker(b));
+
+  // Leaflet doit recalculer la taille une fois le layout du flex appliqué
+  setTimeout(() => mapInst.invalidateSize(), 120);
+  setTimeout(() => mapInst.invalidateSize(), 500);
+  window.addEventListener('resize', () => mapInst.invalidateSize());
+}
+
+function onMapClick(e) {
+  if (!placing) return;
+  pendingLL = { lat: e.latlng.lat, lng: e.latlng.lng };
+  placing = false;
+  document.getElementById('map-add-btn').classList.remove('placing');
+  document.getElementById('map-add-btn').textContent = '+';
+  document.getElementById('map-hint').classList.remove('visible');
+  openBldModal();
+}
+
+function togglePlacing() {
+  placing = !placing;
+  const btn  = document.getElementById('map-add-btn');
+  const hint = document.getElementById('map-hint');
+  if (placing) {
+    btn.classList.add('placing'); btn.textContent = '×'; hint.classList.add('visible');
+  } else {
+    btn.classList.remove('placing'); btn.textContent = '+'; hint.classList.remove('visible');
+    pendingLL = null;
+  }
+}
+
+function placeMarker(b) {
+  const t = TYPES[b.type] || TYPES.pompiers;
+  const icon = L.divIcon({
+    className:'',
+    html:`<div class="map-marker" style="background:${t.color}"><span>${t.emoji}</span></div>`,
+    iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-38]
+  });
+  markers[b.id] = L.marker([b.lat,b.lng],{icon}).addTo(mapInst)
+    .on('click', () => openBuilding(b.id));
+}
+
+function removeMarker(id) {
+  if (markers[id]) { markers[id].remove(); delete markers[id]; }
+}
+
+function refreshMarker(b) { removeMarker(b.id); placeMarker(b); }
+
+// ═══════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════
+function switchMain(tab) {
+  ['map','data'].forEach(t => {
+    document.getElementById('view-'+t).classList.toggle('active', t===tab);
+    document.getElementById('nav-'+t).classList.toggle('active', t===tab);
+  });
+  if (tab==='map') setTimeout(()=>mapInst&&mapInst.invalidateSize(),80);
+  if (tab==='data') renderDataList();
+}
+
+// ═══════════════════════════════
+//  BUILDING DETAIL
+// ═══════════════════════════════
+function openBuilding(id) {
+  const b = buildings.find(x=>x.id===id);
+  if (!b) return;
+  curBldId = id; curTab = 'general';
+  const t = TYPES[b.type]||TYPES.pompiers;
+  document.getElementById('bld-title').textContent = b.nom;
+  document.getElementById('bld-subtitle').textContent =
+    t.emoji+' '+t.label+(b.niveau?' — Niv. '+b.niveau:'')+(b.specialite?' · '+b.specialite:'');
+  document.querySelectorAll('.bld-tab').forEach((el,i)=>el.classList.toggle('active',i===0));
+  switchTab('general');
+  document.getElementById('view-building').classList.add('open');
+}
+
+function closeBuilding() {
+  document.getElementById('view-building').classList.remove('open');
+  curBldId = null;
+}
+
+function switchTab(tab) {
+  curTab = tab;
+  const tabs = ['general','vehicules','personnels'];
+  document.querySelectorAll('.bld-tab').forEach((el,i)=>el.classList.toggle('active',tabs[i]===tab));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  const b = buildings.find(x=>x.id===curBldId);
+  if (!b) return;
+  if (tab==='general')    renderGeneral(b);
+  if (tab==='vehicules')  renderVehicules(b);
+  if (tab==='personnels') renderPersonnels(b);
+}
+
+// ─ Général ─
+function renderGeneral(b) {
+  const vCount = (b.vehicules||[]).length;
+  const pTotal = GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+  const gOcc=vCount, gTot=b.placeGarageTotal||0;
+  const gPct=gTot>0?Math.min(100,Math.round(gOcc/gTot*100)):0;
+  const gCol=gPct>90?'#dc2626':gPct>70?'#f0883e':'#3fb950';
+  const vOcc=b.placeVestiaireOccupe||0, vTot=b.placeVestiaireTotal||0;
+  const vPct=vTot>0?Math.min(100,Math.round(vOcc/vTot*100)):0;
+  const vCol=vPct>90?'#dc2626':vPct>70?'#f0883e':'#3fb950';
+  const t=TYPES[b.type]||TYPES.pompiers;
+
+  document.getElementById('tab-general').innerHTML=`
+    <div class="i-section">
+      <div class="i-section-title">Vue d'ensemble</div>
+      <div class="info-grid" style="margin-bottom:8px">
+        <div class="info-card"><div class="ic-label">🚗 Véhicules</div><div class="ic-val" style="color:var(--accent)">${vCount}</div></div>
+        <div class="info-card"><div class="ic-label">👤 Personnels</div><div class="ic-val" style="color:var(--blue)">${pTotal}</div></div>
+        <div class="info-card"><div class="ic-label">📊 Niveau</div><div class="ic-val">${b.niveau||1}</div></div>
+        <div class="info-card"><div class="ic-label">🏢 Service</div><div class="ic-val">${t.emoji}</div></div>
+      </div>
+    </div>
+
+    <div class="i-section">
+      <div class="i-section-title">Capacités</div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="pt-label">🏎️ Garage</span>
+          <span style="font-weight:700;color:${gCol}">${gOcc}/${gTot}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${gPct}%;background:${gCol}"></div></div>
+      </div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="pt-label">👕 Vestiaire</span>
+          <span style="font-weight:700;color:${vCol}">${vOcc}/${vTot}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${vPct}%;background:${vCol}"></div></div>
+      </div>
+    </div>
+
+    ${b.specialite?`<div class="i-section"><div class="i-section-title">Spécialité</div>
+      <div class="info-row"><span class="ir-label">Spécialité</span><span class="ir-val">${b.specialite}</span></div></div>`:''}
+
+    ${b.extension?`<div class="i-section"><div class="i-section-title">Extension</div>
+      <div class="info-row"><span class="ir-label">Extension</span><span class="ir-val">${b.extension}</span></div></div>`:''}
+
+    <div class="i-section">
+      <div class="i-section-title">Localisation</div>
+      <div class="info-row"><span class="ir-label">Coordonnées</span>
+        <span class="ir-val" style="font-size:12px;font-family:monospace">${b.lat.toFixed(4)}, ${b.lng.toFixed(4)}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ─ Véhicules ─
+function renderVehicules(b) {
+  const vehs = b.vehicules||[];
+  let html=`<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${vehs.length} véhicule${vehs.length!==1?'s':''} · ${b.placeGarageTotal||0} places garage</div>`;
+
+  if (!vehs.length) {
+    html+=`<div class="empty-state"><div class="es-icon">🚗</div><div class="es-title">Aucun véhicule affecté</div>
+      <div class="es-text">Appuyez sur + pour ajouter un véhicule à ce bâtiment</div></div>`;
+  } else {
+    vehs.forEach(v=>{
+      const sc=STATUS_COLOR[v.statut]||'#8b949e';
+      const sl=STATUS_LABEL[v.statut]||v.statut;
+      html+=`<div class="vehicle-row">
+        <div class="vr-icon">${VEH_EMOJI[v.type]||'🚗'}</div>
+        <div class="vr-info">
+          <div class="vr-name">${v.nom}</div>
+          <div class="vr-type">${v.type} · <span style="color:${sc}">${sl}</span></div>
+        </div>
+        <button class="vr-del" onclick="delVehicle('${v.id}')">🗑</button>
+      </div>`;
+    });
+  }
+
+  html+=`<button class="add-row-btn" onclick="openVehModal()"><span style="font-size:20px">+</span> Ajouter un véhicule</button>`;
+  document.getElementById('tab-vehicules').innerHTML=html;
+}
+
+// ─ Personnels ─
+function renderPersonnels(b) {
+  const p=b.personnel||{};
+  const total=GRADES.reduce((s,g)=>s+(p[g.id]||0),0);
+  let html=`<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${total} personnel${total!==1?'s':''} au total</div>`;
+  GRADES.forEach(g=>{
+    html+=`<div class="grade-row">
+      <div class="gr-icon">${g.emoji}</div>
+      <div class="gr-name">${g.label}</div>
+      <div class="grade-counter">
+        <div class="ctr-btn" onclick="adjGrade('${g.id}',-1)">−</div>
+        <div class="ctr-val" id="gv-${g.id}">${p[g.id]||0}</div>
+        <div class="ctr-btn" onclick="adjGrade('${g.id}',1)">+</div>
+      </div>
+    </div>`;
+  });
+  document.getElementById('tab-personnels').innerHTML=html;
+}
+
+function adjGrade(gid, delta) {
+  const b=buildings.find(x=>x.id===curBldId);
+  if (!b) return;
+  if (!b.personnel) b.personnel={};
+  b.personnel[gid]=Math.max(0,(b.personnel[gid]||0)+delta);
+  b.placeVestiaireOccupe=GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+  save();
+  const el=document.getElementById('gv-'+gid);
+  if (el) el.textContent=b.personnel[gid];
+  // update subtitle total
+  const total=GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+  const sub=document.querySelector('#tab-personnels > div');
+  if (sub) sub.textContent=`${total} personnel${total!==1?'s':''} au total`;
+}
+
+// ═══════════════════════════════
+//  BUILDING MODAL
+// ═══════════════════════════════
+function openBldModal(id) {
+  editBldId = id||null;
+  selType = 'pompiers';
+  buildTypeGrid();
+
+  if (id) {
+    const b=buildings.find(x=>x.id===id);
+    if (b) {
+      selType=b.type||'pompiers';
+      document.getElementById('f-nom').value=b.nom||'';
+      document.getElementById('f-niveau').value=b.niveau||1;
+      document.getElementById('f-ext').value=b.extension||'';
+      document.getElementById('f-spe').value=b.specialite||'';
+      document.getElementById('f-garage').value=b.placeGarageTotal||0;
+      document.getElementById('f-vest').value=b.placeVestiaireTotal||0;
+      buildTypeGrid();
+      document.getElementById('modal-bld-ttl').textContent='Modifier le bâtiment';
+      document.querySelector('#modal-bld .btn-primary').textContent='Enregistrer';
+      document.getElementById('del-bld-btn').style.display='block';
+    }
+  } else {
+    document.getElementById('f-nom').value='';
+    document.getElementById('f-niveau').value=1;
+    document.getElementById('f-ext').value='';
+    document.getElementById('f-spe').value='';
+    document.getElementById('f-garage').value=10;
+    document.getElementById('f-vest').value=20;
+    document.getElementById('modal-bld-ttl').textContent='Nouveau bâtiment';
+    document.querySelector('#modal-bld .btn-primary').textContent='Créer le bâtiment';
+    document.getElementById('del-bld-btn').style.display='none';
+  }
+
+  document.getElementById('modal-bld').classList.add('open');
+}
+
+function buildTypeGrid() {
+  document.getElementById('type-grid').innerHTML=
+    Object.entries(TYPES).map(([k,t])=>`
+      <div class="type-opt${selType===k?' sel':''}" onclick="pickType('${k}')">
+        <span class="to-emoji">${t.emoji}</span>
+        <span class="to-name">${t.label}</span>
+      </div>`).join('');
+}
+
+function pickType(k) { selType=k; buildTypeGrid(); }
+
+function saveBuilding() {
+  const nom = document.getElementById('f-nom').value.trim();
+  if (!nom) {
+    document.getElementById('f-nom').style.borderColor='var(--accent)';
+    document.getElementById('f-nom').focus(); return;
+  }
+  document.getElementById('f-nom').style.borderColor='';
+
+  if (editBldId) {
+    const b=buildings.find(x=>x.id===editBldId);
+    if (b) {
+      Object.assign(b,{
+        nom, type:selType,
+        niveau:parseInt(document.getElementById('f-niveau').value)||1,
+        extension:document.getElementById('f-ext').value.trim(),
+        specialite:document.getElementById('f-spe').value.trim(),
+        placeGarageTotal:parseInt(document.getElementById('f-garage').value)||0,
+        placeVestiaireTotal:parseInt(document.getElementById('f-vest').value)||0,
+        service:selType,
+      });
+      refreshMarker(b); save();
+      closeModal('modal-bld');
+      if (curBldId===b.id) openBuilding(b.id);
+      renderDataList();
+    }
+  } else {
+    if (!pendingLL) {
+      alert('Aucune position sélectionnée sur la carte.'); return;
+    }
+    const nb = {
+      id:uid(), nom, type:selType, service:selType,
+      niveau:parseInt(document.getElementById('f-niveau').value)||1,
+      extension:document.getElementById('f-ext').value.trim(),
+      specialite:document.getElementById('f-spe').value.trim(),
+      placeGarageTotal:parseInt(document.getElementById('f-garage').value)||0,
+      placeGarageOccupe:0,
+      placeVestiaireTotal:parseInt(document.getElementById('f-vest').value)||0,
+      placeVestiaireOccupe:0,
+      vehicules:[], personnel:{},
+      lat:pendingLL.lat, lng:pendingLL.lng,
+      createdAt:new Date().toISOString(),
+    };
+    buildings.push(nb);
+    pendingLL=null;
+    placeMarker(nb); save();
+    closeModal('modal-bld');
+    switchMain('map');
+  }
+
+  placing=false;
+  document.getElementById('map-add-btn').classList.remove('placing');
+  document.getElementById('map-add-btn').textContent='+';
+  document.getElementById('map-hint').classList.remove('visible');
+}
+
+function editCurrentBuilding() { openBldModal(curBldId); }
+
+function deleteBuilding() {
+  const id=editBldId||curBldId;
+  showConfirm(
+    'Supprimer le bâtiment ?',
+    'Tous les véhicules et personnels affectés seront perdus. Cette action est irréversible.',
+    ()=>{
+      removeMarker(id);
+      buildings=buildings.filter(b=>b.id!==id);
+      save();
+      closeModal('modal-bld');
+      closeBuilding();
+      renderDataList();
+    }
+  );
+}
+
+// ═══════════════════════════════
+//  VEHICLE MODAL
+// ═══════════════════════════════
+function openVehModal() {
+  const b=buildings.find(x=>x.id===curBldId);
+  if (!b) return;
+  const types=VEHICLES[b.type]||VEHICLES.pompiers;
+  document.getElementById('veh-type').innerHTML=types.map(t=>`<option value="${t}">${t}</option>`).join('');
+  document.getElementById('veh-nom').value='';
+  document.getElementById('modal-veh').classList.add('open');
+}
+
+function saveVehicle() {
+  const b=buildings.find(x=>x.id===curBldId);
+  if (!b) return;
+  const nom=document.getElementById('veh-nom').value.trim();
+  if (!nom){ document.getElementById('veh-nom').focus(); return; }
+  if (!b.vehicules) b.vehicules=[];
+  b.vehicules.push({ id:uid(), nom, type:document.getElementById('veh-type').value, statut:document.getElementById('veh-statut').value });
+  b.placeGarageOccupe=b.vehicules.length;
+  save();
+  closeModal('modal-veh');
+  renderVehicules(b);
+}
+
+function delVehicle(vid) {
+  showConfirm('Retirer ce véhicule ?','Le véhicule sera retiré de ce bâtiment.',()=>{
+    const b=buildings.find(x=>x.id===curBldId);
+    if (!b) return;
+    b.vehicules=(b.vehicules||[]).filter(v=>v.id!==vid);
+    b.placeGarageOccupe=b.vehicules.length;
+    save(); renderVehicules(b);
+  });
+}
+
+// ═══════════════════════════════
+//  DATA LIST
+// ═══════════════════════════════
+function renderDataList() {
+  const el=document.getElementById('data-list');
+  if (!buildings.length) {
+    el.innerHTML=`<div class="empty-state">
+      <div class="es-icon">🏗️</div>
+      <div class="es-title">Aucun bâtiment</div>
+      <div class="es-text">Rendez-vous sur la Carte, appuyez sur + et touchez la carte pour créer votre premier bâtiment.</div>
+    </div>`;
+    return;
+  }
+  const grouped={};
+  buildings.forEach(b=>{ (grouped[b.type]=grouped[b.type]||[]).push(b); });
+
+  let html='';
+  Object.entries(TYPES).forEach(([k,t])=>{
+    if (!grouped[k]) return;
+    html+=`<div class="section-title">${t.emoji} ${t.label} <span style="color:var(--accent);font-weight:800">${grouped[k].length}</span></div>`;
+    grouped[k].forEach(b=>{
+      const vCount=(b.vehicules||[]).length;
+      const pTotal=GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+      html+=`<div class="building-card" onclick="openBuilding('${b.id}')">
+        <div class="bc-icon" style="background:${t.color}18">${t.emoji}</div>
+        <div class="bc-info">
+          <div class="bc-name">${b.nom}</div>
+          <div class="bc-sub">Niv. ${b.niveau||1}${b.specialite?' · '+b.specialite:''}</div>
+        </div>
+        <div class="bc-stats">
+          <div class="stat-pill"><strong>${vCount}</strong>veh.</div>
+          <div class="stat-pill"><strong>${pTotal}</strong>pers.</div>
+        </div>
+      </div>`;
+    });
+  });
+  el.innerHTML=html;
+}
+
+// ═══════════════════════════════
+//  GLOBAL STATS
+// ═══════════════════════════════
+function showGlobalStats() {
+  const total=buildings.length;
+  const vTotal=buildings.reduce((s,b)=>s+(b.vehicules||[]).length,0);
+  const pTotal=buildings.reduce((s,b)=>s+GRADES.reduce((ss,g)=>ss+(b.personnel?.[g.id]||0),0),0);
+  const byType=Object.entries(TYPES).map(([k,t])=>`${t.emoji} ${t.label}: ${buildings.filter(b=>b.type===k).length}`).join('\n');
+  showConfirm('📊 Statistiques globales',
+    `${total} bâtiment${total!==1?'s':''} · ${vTotal} véhicule${vTotal!==1?'s':''} · ${pTotal} personnel${pTotal!==1?'s':''}\n\n${byType}`,
+    ()=>{}
+  );
+}
+
+// ═══════════════════════════════
+//  MODALS
+// ═══════════════════════════════
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function showConfirm(ttl, msg, cb) {
+  document.getElementById('confirm-ttl').textContent=ttl;
+  document.getElementById('confirm-msg').style.whiteSpace='pre-line';
+  document.getElementById('confirm-msg').textContent=msg;
+  confirmCb=cb;
+  document.getElementById('confirm-overlay').classList.add('open');
+}
+function closeConfirm(ok) {
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if (ok && confirmCb) confirmCb();
+  confirmCb=null;
+}
+
+// ═══════════════════════════════
+//  INIT
+// ═══════════════════════════════
+document.addEventListener('DOMContentLoaded',()=>{
+  load();
+  initMap();
+  renderDataList();
+});
+
+// Service worker (réseau prioritaire) pour la mise à jour automatique
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
