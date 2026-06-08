@@ -264,11 +264,49 @@
     .fp-reset:active { background: var(--border); }
 
     /* ── DATA VIEW ── */
-    #view-data {
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      padding: 12px;
+    #view-data { flex-direction: column; }
+
+    #data-tabs {
+      display: flex; flex-shrink: 0;
+      background: var(--bg2); border-bottom: 1px solid var(--border);
     }
+    .data-tab {
+      flex: 1; text-align: center; padding: 12px 6px;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      cursor: pointer; position: relative;
+    }
+    .data-tab.active { color: var(--accent); }
+    .data-tab.active::after {
+      content: ''; position: absolute; bottom: 0; left: 18%; right: 18%;
+      height: 2px; background: var(--accent); border-radius: 2px;
+    }
+    #data-panels { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .data-panel { display: none; padding: 12px; }
+    .data-panel.active { display: block; }
+
+    /* Catalog (véhicules / extensions) */
+    .cat-item {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 11px 14px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .cat-item .ci-name { flex: 1; font-size: 14px; font-weight: 600; }
+    .cat-item .ci-edit, .cat-item .ci-del {
+      width: 32px; height: 32px; border-radius: 8px; border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 14px; flex-shrink: 0;
+    }
+    .cat-item .ci-edit { background: var(--bg3); color: var(--text); }
+    .cat-item .ci-del  { background: rgba(220,38,38,0.12); color: #ef4444; }
+
+    .cat-add-btn {
+      width: 100%; padding: 13px;
+      background: var(--accent); color: #fff; border: none;
+      border-radius: 12px; font-size: 14px; font-weight: 700;
+      cursor: pointer; margin-top: 4px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .cat-add-btn:active { background: var(--accent2); }
 
     .section-title {
       font-size: 11px; font-weight: 700;
@@ -694,7 +732,16 @@
 
     <!-- DATA VIEW -->
     <div id="view-data" class="view">
-      <div id="data-list" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px"></div>
+      <div id="data-tabs">
+        <div class="data-tab active" onclick="switchDataTab('batiments')">Bâtiments</div>
+        <div class="data-tab"        onclick="switchDataTab('vehicules')">Véhicules</div>
+        <div class="data-tab"        onclick="switchDataTab('extensions')">Extensions</div>
+      </div>
+      <div id="data-panels">
+        <div id="dpanel-batiments"  class="data-panel active"><div id="data-list"></div></div>
+        <div id="dpanel-vehicules"  class="data-panel"></div>
+        <div id="dpanel-extensions" class="data-panel"></div>
+      </div>
     </div>
 
   </div>
@@ -758,7 +805,7 @@
         </div>
         <div class="form-group">
           <div class="form-label">Extension</div>
-          <input class="form-input" id="f-ext" type="text" placeholder="Optionnel">
+          <select class="form-select" id="f-ext"></select>
         </div>
       </div>
       <div class="form-group">
@@ -808,6 +855,29 @@
         </select>
       </div>
       <button class="btn-primary" onclick="saveVehicle()">Ajouter le véhicule</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Catalogue (véhicule / extension) -->
+<div class="modal-overlay" id="modal-cat">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="modal-cat-ttl">Nouveau</div>
+      <button class="modal-close" onclick="closeModal('modal-cat')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <div class="form-label" id="cat-name-label">Nom *</div>
+        <input class="form-input" id="cat-name" type="text" placeholder="Ex : FPT, GRIMP…">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Type de bâtiment associé</div>
+        <select class="form-select" id="cat-btype"></select>
+      </div>
+      <button class="btn-primary" onclick="saveCatItem()">Enregistrer</button>
+      <button class="btn-danger" id="cat-del-btn" style="display:none" onclick="deleteCatItem()">🗑 Supprimer</button>
     </div>
   </div>
 </div>
@@ -885,6 +955,9 @@ let pendingLL  = null;
 let confirmCb  = null;
 let mapInst    = null;
 let markers    = {};
+let catalog    = { vehicles: [], extensions: [] };
+let catEditKind = null;   // 'vehicle' | 'extension'
+let catEditId   = null;
 
 // Filtres & options carte
 let filterTerms   = [];        // [{type, op}] op: null | 'and' | 'or'
@@ -897,11 +970,34 @@ let radiusLayers  = [];
 //  STORAGE
 // ═══════════════════════════════
 const KEY = 'secourssim_v1';
+const CAT_KEY = 'secourssim_catalog_v1';
+
 function save() { localStorage.setItem(KEY, JSON.stringify(buildings)); }
+function saveCatalog() { localStorage.setItem(CAT_KEY, JSON.stringify(catalog)); }
+
 function load() {
   try { buildings = JSON.parse(localStorage.getItem(KEY)) || []; }
   catch { buildings = []; }
+  loadCatalog();
 }
+
+function loadCatalog() {
+  try { catalog = JSON.parse(localStorage.getItem(CAT_KEY)); }
+  catch { catalog = null; }
+  if (!catalog || !Array.isArray(catalog.vehicles)) {
+    // Amorçage : on convertit les listes par défaut en catalogue éditable
+    catalog = { vehicles: [], extensions: [] };
+    Object.entries(VEHICLES).forEach(([btype, names]) => {
+      names.forEach(name => catalog.vehicles.push({ id: uid(), name, btype }));
+    });
+    saveCatalog();
+  }
+  if (!Array.isArray(catalog.extensions)) catalog.extensions = [];
+}
+
+function catVehiclesFor(btype) { return catalog.vehicles.filter(v => v.btype === btype); }
+function catExtensionsFor(btype) { return catalog.extensions.filter(e => e.btype === btype); }
+
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 // ═══════════════════════════════
@@ -1123,7 +1219,7 @@ function refreshFilterUI() {
   if (expr) {
     expr.innerHTML = filterTerms.map((t, i) =>
       (i ? `<span class="fp-op">${t.op === 'or' ? 'OU' : 'ET'}</span>` : '') +
-      `<span class="fp-chip">${VEH_EMOJI[t.type]||'🚗'} ${t.type}</span>`
+      `<span class="fp-chip">${t.type}</span>`
     ).join('');
   }
   // liste des véhicules disponibles
@@ -1138,7 +1234,6 @@ function refreshFilterUI() {
     const idx = filterTerms.findIndex(t => t.type === type);
     const sel = idx >= 0;
     return `<div class="fp-veh-row${sel?' sel':''}" onclick="onVehicleFilterClick('${type.replace(/'/g,"\\'")}', event)">
-      <span class="fvr-emoji">${VEH_EMOJI[type]||'🚗'}</span>
       <span class="fvr-name">${type}</span>
       ${sel?`<span class="fvr-order">#${idx+1}</span>`:''}
       <span class="fvr-count">${count}</span>
@@ -1155,7 +1250,7 @@ function switchMain(tab) {
     document.getElementById('nav-'+t).classList.toggle('active', t===tab);
   });
   if (tab==='map') setTimeout(()=>mapInst&&mapInst.invalidateSize(),80);
-  if (tab==='data') renderDataList();
+  if (tab==='data') renderDataActive();
 }
 
 // ═══════════════════════════════
@@ -1261,7 +1356,6 @@ function renderVehicules(b) {
       const sc=STATUS_COLOR[v.statut]||'#8b949e';
       const sl=STATUS_LABEL[v.statut]||v.statut;
       html+=`<div class="vehicle-row">
-        <div class="vr-icon">${VEH_EMOJI[v.type]||'🚗'}</div>
         <div class="vr-info">
           <div class="vr-name">${v.nom}</div>
           <div class="vr-type">${v.type} · <span style="color:${sc}">${sl}</span></div>
@@ -1323,7 +1417,7 @@ function openBldModal(id) {
       selType=b.type||'pompiers';
       document.getElementById('f-nom').value=b.nom||'';
       document.getElementById('f-niveau').value=b.niveau||1;
-      document.getElementById('f-ext').value=b.extension||'';
+      populateExtensionSelect(selType, b.extension||'');
       document.getElementById('f-spe').value=b.specialite||'';
       document.getElementById('f-garage').value=b.placeGarageTotal||0;
       document.getElementById('f-vest').value=b.placeVestiaireTotal||0;
@@ -1335,7 +1429,7 @@ function openBldModal(id) {
   } else {
     document.getElementById('f-nom').value='';
     document.getElementById('f-niveau').value=1;
-    document.getElementById('f-ext').value='';
+    populateExtensionSelect(selType, '');
     document.getElementById('f-spe').value='';
     document.getElementById('f-garage').value=10;
     document.getElementById('f-vest').value=20;
@@ -1356,7 +1450,24 @@ function buildTypeGrid() {
       </div>`).join('');
 }
 
-function pickType(k) { selType=k; buildTypeGrid(); }
+function pickType(k) {
+  selType=k; buildTypeGrid();
+  populateExtensionSelect(selType, document.getElementById('f-ext').value);
+}
+
+// Remplit le menu déroulant Extension selon le type de bâtiment
+function populateExtensionSelect(btype, current) {
+  const sel=document.getElementById('f-ext');
+  const exts=catExtensionsFor(btype);
+  let opts=`<option value="">Aucune</option>`;
+  exts.forEach(e=>{ opts+=`<option value="${e.name}">${e.name}</option>`; });
+  // si l'extension actuelle n'existe pas dans le catalogue, on la conserve quand même
+  if (current && !exts.some(e=>e.name===current)) {
+    opts+=`<option value="${current}">${current} (personnalisée)</option>`;
+  }
+  sel.innerHTML=opts;
+  sel.value=current||'';
+}
 
 function saveBuilding() {
   const nom = document.getElementById('f-nom').value.trim();
@@ -1439,8 +1550,13 @@ function deleteBuilding() {
 function openVehModal() {
   const b=buildings.find(x=>x.id===curBldId);
   if (!b) return;
-  const types=VEHICLES[b.type]||VEHICLES.pompiers;
-  document.getElementById('veh-type').innerHTML=types.map(t=>`<option value="${t}">${t}</option>`).join('');
+  const list=catVehiclesFor(b.type);
+  const sel=document.getElementById('veh-type');
+  if (!list.length) {
+    sel.innerHTML=`<option value="">— Aucun véhicule paramétré pour ce type —</option>`;
+  } else {
+    sel.innerHTML=list.map(v=>`<option value="${v.name}">${v.name}</option>`).join('');
+  }
   document.getElementById('veh-nom').value='';
   document.getElementById('modal-veh').classList.add('open');
 }
@@ -1450,8 +1566,10 @@ function saveVehicle() {
   if (!b) return;
   const nom=document.getElementById('veh-nom').value.trim();
   if (!nom){ document.getElementById('veh-nom').focus(); return; }
+  const vtype=document.getElementById('veh-type').value;
+  if (!vtype){ alert('Aucun type de véhicule disponible. Ajoutez-en dans Données › Véhicules pour ce type de bâtiment.'); return; }
   if (!b.vehicules) b.vehicules=[];
-  b.vehicules.push({ id:uid(), nom, type:document.getElementById('veh-type').value, statut:document.getElementById('veh-statut').value });
+  b.vehicules.push({ id:uid(), nom, type:vtype, statut:document.getElementById('veh-statut').value });
   b.placeGarageOccupe=b.vehicules.length;
   save();
   closeModal('modal-veh');
@@ -1507,6 +1625,126 @@ function renderDataList() {
     });
   });
   el.innerHTML=html;
+}
+
+// ═══════════════════════════════
+//  ONGLETS DONNÉES
+// ═══════════════════════════════
+let curDataTab = 'batiments';
+
+function switchDataTab(tab) {
+  curDataTab = tab;
+  const tabs=['batiments','vehicules','extensions'];
+  document.querySelectorAll('#data-tabs .data-tab').forEach((el,i)=>el.classList.toggle('active',tabs[i]===tab));
+  document.querySelectorAll('.data-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('dpanel-'+tab).classList.add('active');
+  renderDataActive();
+}
+
+function renderDataActive() {
+  if (curDataTab==='batiments')  renderDataList();
+  if (curDataTab==='vehicules')  renderCatalog('vehicle');
+  if (curDataTab==='extensions') renderCatalog('extension');
+}
+
+// Rendu générique du catalogue (véhicules ou extensions), groupé par type de bâtiment
+function renderCatalog(kind) {
+  const isVeh = kind==='vehicle';
+  const items = isVeh ? catalog.vehicles : catalog.extensions;
+  const panel = document.getElementById(isVeh?'dpanel-vehicules':'dpanel-extensions');
+  const labelSing = isVeh ? 'véhicule' : 'extension';
+
+  let html = `<button class="cat-add-btn" onclick="openCatModal('${kind}')">
+      <span style="font-size:18px">+</span> Ajouter ${isVeh?'un véhicule':'une extension'}</button>`;
+
+  if (!items.length) {
+    html += `<div class="empty-state"><div class="es-icon">${isVeh?'🚗':'🏗️'}</div>
+      <div class="es-title">Aucun${isVeh?'':'e'} ${labelSing}</div>
+      <div class="es-text">Ajoutez vos ${labelSing}s : ils apparaîtront dans les menus déroulants des bâtiments du type associé.</div></div>`;
+    panel.innerHTML = html;
+    return;
+  }
+
+  const grouped={};
+  items.forEach(it=>{ (grouped[it.btype]=grouped[it.btype]||[]).push(it); });
+  Object.entries(TYPES).forEach(([k,t])=>{
+    if (!grouped[k]) return;
+    html += `<div class="section-title">${t.emoji} ${t.label} <span style="color:var(--accent);font-weight:800">${grouped[k].length}</span></div>`;
+    grouped[k].forEach(it=>{
+      html += `<div class="cat-item">
+        <span class="ci-name">${it.name}</span>
+        <button class="ci-edit" onclick="openCatModal('${kind}','${it.id}')">✏️</button>
+        <button class="ci-del" onclick="deleteCatItem('${it.id}','${kind}')">🗑</button>
+      </div>`;
+    });
+  });
+  panel.innerHTML = html;
+}
+
+// ── Modal catalogue ──
+function openCatModal(kind, id) {
+  catEditKind = kind;
+  catEditId = id || null;
+  const isVeh = kind==='vehicle';
+
+  // type de bâtiment
+  document.getElementById('cat-btype').innerHTML =
+    Object.entries(TYPES).map(([k,t])=>`<option value="${k}">${t.emoji} ${t.label}</option>`).join('');
+
+  document.getElementById('cat-name-label').textContent = isVeh ? 'Nom du véhicule *' : "Nom de l'extension *";
+  document.getElementById('cat-name').placeholder = isVeh ? 'Ex : FPT, VSAV…' : 'Ex : Tour, Garage annexe…';
+
+  const arr = isVeh ? catalog.vehicles : catalog.extensions;
+  const item = id ? arr.find(x=>x.id===id) : null;
+
+  document.getElementById('modal-cat-ttl').textContent =
+    (id?'Modifier ':'Nouveau ') + (isVeh?'véhicule':'extension');
+  document.getElementById('cat-name').value = item ? item.name : '';
+  document.getElementById('cat-btype').value = item ? item.btype : 'pompiers';
+  document.getElementById('cat-del-btn').style.display = id ? 'block' : 'none';
+
+  document.getElementById('modal-cat').classList.add('open');
+  document.getElementById('cat-name').style.borderColor='';
+}
+
+function saveCatItem() {
+  const name = document.getElementById('cat-name').value.trim();
+  if (!name) {
+    document.getElementById('cat-name').style.borderColor='var(--accent)';
+    document.getElementById('cat-name').focus(); return;
+  }
+  const btype = document.getElementById('cat-btype').value;
+  const arr = catEditKind==='vehicle' ? catalog.vehicles : catalog.extensions;
+
+  if (catEditId) {
+    const it = arr.find(x=>x.id===catEditId);
+    if (it) { it.name=name; it.btype=btype; }
+  } else {
+    arr.push({ id:uid(), name, btype });
+  }
+  saveCatalog();
+  closeModal('modal-cat');
+  renderCatalog(catEditKind);
+}
+
+function deleteCatItem(id, kind) {
+  const k = kind || catEditKind;
+  const isVeh = k==='vehicle';
+  const arr = isVeh ? catalog.vehicles : catalog.extensions;
+  const targetId = id || catEditId;
+  const it = arr.find(x=>x.id===targetId);
+  if (!it) return;
+  showConfirm(
+    `Supprimer « ${it.name} » ?`,
+    `Cet élément sera retiré du catalogue. Les bâtiments existants qui l'utilisent déjà ne sont pas modifiés.`,
+    ()=>{
+      const idx = arr.findIndex(x=>x.id===targetId);
+      if (idx>=0) arr.splice(idx,1);
+      saveCatalog();
+      closeModal('modal-cat');
+      renderCatalog(k);
+    }
+  );
 }
 
 // ═══════════════════════════════
