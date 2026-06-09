@@ -87,7 +87,7 @@
     /* #view-map garde position:absolute + inset:0 hérités de .view —
        NE PAS remettre position:relative ici, sinon la hauteur s'effondre à 0
        et la carte disparaît. Le bouton + (absolute) s'ancre sur cette .view. */
-    #map { flex: 1; width: 100%; min-height: 0; background: #1a1a2e; }
+    #map { flex: 1; width: 100%; min-height: 0; background: #aadaff; }
 
     #map-add-btn {
       position: absolute; bottom: 20px; right: 16px;
@@ -627,7 +627,7 @@
     }
 
     /* Leaflet dark overrides */
-    .leaflet-container { background: #1a1a2e; }
+    .leaflet-container { background: #aadaff; }
     .leaflet-control-zoom a {
       background: var(--bg2) !important; color: var(--text) !important;
       border-color: var(--border) !important;
@@ -736,11 +736,13 @@
         <div class="data-tab active" onclick="switchDataTab('batiments')">Bâtiments</div>
         <div class="data-tab"        onclick="switchDataTab('vehicules')">Véhicules</div>
         <div class="data-tab"        onclick="switchDataTab('extensions')">Extensions</div>
+        <div class="data-tab"        onclick="switchDataTab('grades')">Grades</div>
       </div>
       <div id="data-panels">
         <div id="dpanel-batiments"  class="data-panel active"><div id="data-list"></div></div>
         <div id="dpanel-vehicules"  class="data-panel"></div>
         <div id="dpanel-extensions" class="data-panel"></div>
+        <div id="dpanel-grades"     class="data-panel"></div>
       </div>
     </div>
 
@@ -934,13 +936,8 @@ const STATUS_LABEL = {
   disponible:'Disponible',intervention:'En intervention',maintenance:'Maintenance',indisponible:'Indisponible'
 };
 
-const GRADES = [
-  { id:'sapeur',    label:'Sapeur',     emoji:'🪖' },
-  { id:'caporal',   label:'Caporal',    emoji:'🔰' },
-  { id:'sergent',   label:'Sergent',    emoji:'⭐' },
-  { id:'adjudant',  label:'Adjudant',   emoji:'🌟' },
-  { id:'lieutenant',label:'Lieutenant', emoji:'✨' },
-];
+// Grades par défaut utilisés pour amorcer le catalogue de chaque type de bâtiment
+const DEFAULT_GRADES = ['Sapeur','Caporal','Sergent','Adjudant','Lieutenant'];
 
 // ═══════════════════════════════
 //  STATE
@@ -993,10 +990,20 @@ function loadCatalog() {
     saveCatalog();
   }
   if (!Array.isArray(catalog.extensions)) catalog.extensions = [];
+  if (!Array.isArray(catalog.grades)) {
+    // Amorçage des grades par défaut pour chaque type de bâtiment
+    catalog.grades = [];
+    Object.keys(TYPES).forEach(btype => {
+      DEFAULT_GRADES.forEach(name => catalog.grades.push({ id: uid(), name, btype }));
+    });
+    saveCatalog();
+  }
 }
 
 function catVehiclesFor(btype) { return catalog.vehicles.filter(v => v.btype === btype); }
 function catExtensionsFor(btype) { return catalog.extensions.filter(e => e.btype === btype); }
+function catGradesFor(btype) { return catalog.grades.filter(g => g.btype === btype); }
+function personnelTotal(b) { return Object.values(b.personnel||{}).reduce((s,n)=>s+(n||0),0); }
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -1016,21 +1023,20 @@ function initMap() {
   mapInst = L.map('map', { center:[46.6,2.3], zoom:6, zoomControl:false });
   L.control.zoom({ position:'topright' }).addTo(mapInst);
 
-  // Fond de carte sombre (CARTO / OpenStreetMap)
-  const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution:'© OpenStreetMap © CARTO',
-    subdomains:'abcd', maxZoom:20
-  });
-  // Repli : tuiles OpenStreetMap standard si le fond sombre échoue
+  // Fond de carte clair classique (OpenStreetMap standard)
   const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:'© OpenStreetMap', maxZoom:19
   });
-
-  dark.on('tileerror', function once() {
-    dark.off('tileerror', once);
-    if (!mapInst.hasLayer(osm)) { mapInst.removeLayer(dark); osm.addTo(mapInst); }
+  // Repli : tuiles claires CARTO Voyager si OSM échoue
+  const voyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:20
   });
-  dark.addTo(mapInst);
+
+  osm.on('tileerror', function once() {
+    osm.off('tileerror', once);
+    if (!mapInst.hasLayer(voyager)) { mapInst.removeLayer(osm); voyager.addTo(mapInst); }
+  });
+  osm.addTo(mapInst);
 
   mapInst.on('click', onMapClick);
   buildings.forEach(b => placeMarker(b));
@@ -1290,7 +1296,7 @@ function switchTab(tab) {
 // ─ Général ─
 function renderGeneral(b) {
   const vCount = (b.vehicules||[]).length;
-  const pTotal = GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+  const pTotal = personnelTotal(b);
   const gOcc=vCount, gTot=b.placeGarageTotal||0;
   const gPct=gTot>0?Math.min(100,Math.round(gOcc/gTot*100)):0;
   const gCol=gPct>90?'#dc2626':gPct>70?'#f0883e':'#3fb950';
@@ -1372,12 +1378,19 @@ function renderVehicules(b) {
 // ─ Personnels ─
 function renderPersonnels(b) {
   const p=b.personnel||{};
-  const total=GRADES.reduce((s,g)=>s+(p[g.id]||0),0);
+  const grades=catGradesFor(b.type);
+  const total=personnelTotal(b);
   let html=`<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${total} personnel${total!==1?'s':''} au total</div>`;
-  GRADES.forEach(g=>{
+  if (!grades.length) {
+    html+=`<div class="empty-state"><div class="es-icon">🎖️</div><div class="es-title">Aucun grade paramétré</div>
+      <div class="es-text">Définissez les grades de ce type de bâtiment dans Données › Grades.</div></div>`;
+    document.getElementById('tab-personnels').innerHTML=html;
+    return;
+  }
+  grades.forEach(g=>{
     html+=`<div class="grade-row">
-      <div class="gr-icon">${g.emoji}</div>
-      <div class="gr-name">${g.label}</div>
+      <div class="gr-icon">👤</div>
+      <div class="gr-name">${g.name}</div>
       <div class="grade-counter">
         <div class="ctr-btn" onclick="adjGrade('${g.id}',-1)">−</div>
         <div class="ctr-val" id="gv-${g.id}">${p[g.id]||0}</div>
@@ -1393,14 +1406,12 @@ function adjGrade(gid, delta) {
   if (!b) return;
   if (!b.personnel) b.personnel={};
   b.personnel[gid]=Math.max(0,(b.personnel[gid]||0)+delta);
-  b.placeVestiaireOccupe=GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+  b.placeVestiaireOccupe=personnelTotal(b);
   save();
   const el=document.getElementById('gv-'+gid);
   if (el) el.textContent=b.personnel[gid];
-  // update subtitle total
-  const total=GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
   const sub=document.querySelector('#tab-personnels > div');
-  if (sub) sub.textContent=`${total} personnel${total!==1?'s':''} au total`;
+  if (sub) sub.textContent=`${personnelTotal(b)} personnel${personnelTotal(b)!==1?'s':''} au total`;
 }
 
 // ═══════════════════════════════
@@ -1610,7 +1621,7 @@ function renderDataList() {
     html+=`<div class="section-title">${t.emoji} ${t.label} <span style="color:var(--accent);font-weight:800">${grouped[k].length}</span></div>`;
     grouped[k].forEach(b=>{
       const vCount=(b.vehicules||[]).length;
-      const pTotal=GRADES.reduce((s,g)=>s+(b.personnel?.[g.id]||0),0);
+      const pTotal=personnelTotal(b);
       html+=`<div class="building-card" onclick="openBuilding('${b.id}')">
         <div class="bc-icon" style="background:${t.color}18">${t.emoji}</div>
         <div class="bc-info">
@@ -1632,9 +1643,16 @@ function renderDataList() {
 // ═══════════════════════════════
 let curDataTab = 'batiments';
 
+// Configuration des trois catalogues paramétrables
+const KINDS = {
+  vehicle:   { arr:()=>catalog.vehicles,   panel:'dpanel-vehicules',  add:'Ajouter un véhicule',  empty:'véhicule',  emptyA:'un',  icon:'🚗', nameLabel:'Nom du véhicule *',   ph:'Ex : FPT, VSAV…',         ttl:'véhicule' },
+  extension: { arr:()=>catalog.extensions, panel:'dpanel-extensions', add:'Ajouter une extension', empty:'extension', emptyA:'une', icon:'🏗️', nameLabel:"Nom de l'extension *", ph:'Ex : Tour, Garage annexe…', ttl:'extension' },
+  grade:     { arr:()=>catalog.grades,     panel:'dpanel-grades',     add:'Ajouter un grade',     empty:'grade',     emptyA:'un',  icon:'🎖️', nameLabel:'Nom du grade *',      ph:'Ex : Sapeur, Brigadier…',  ttl:'grade' },
+};
+
 function switchDataTab(tab) {
   curDataTab = tab;
-  const tabs=['batiments','vehicules','extensions'];
+  const tabs=['batiments','vehicules','extensions','grades'];
   document.querySelectorAll('#data-tabs .data-tab').forEach((el,i)=>el.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.data-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('dpanel-'+tab).classList.add('active');
@@ -1645,22 +1663,22 @@ function renderDataActive() {
   if (curDataTab==='batiments')  renderDataList();
   if (curDataTab==='vehicules')  renderCatalog('vehicle');
   if (curDataTab==='extensions') renderCatalog('extension');
+  if (curDataTab==='grades')     renderCatalog('grade');
 }
 
-// Rendu générique du catalogue (véhicules ou extensions), groupé par type de bâtiment
+// Rendu générique d'un catalogue, groupé par type de bâtiment
 function renderCatalog(kind) {
-  const isVeh = kind==='vehicle';
-  const items = isVeh ? catalog.vehicles : catalog.extensions;
-  const panel = document.getElementById(isVeh?'dpanel-vehicules':'dpanel-extensions');
-  const labelSing = isVeh ? 'véhicule' : 'extension';
+  const cfg = KINDS[kind];
+  const items = cfg.arr();
+  const panel = document.getElementById(cfg.panel);
 
   let html = `<button class="cat-add-btn" onclick="openCatModal('${kind}')">
-      <span style="font-size:18px">+</span> Ajouter ${isVeh?'un véhicule':'une extension'}</button>`;
+      <span style="font-size:18px">+</span> ${cfg.add}</button>`;
 
   if (!items.length) {
-    html += `<div class="empty-state"><div class="es-icon">${isVeh?'🚗':'🏗️'}</div>
-      <div class="es-title">Aucun${isVeh?'':'e'} ${labelSing}</div>
-      <div class="es-text">Ajoutez vos ${labelSing}s : ils apparaîtront dans les menus déroulants des bâtiments du type associé.</div></div>`;
+    html += `<div class="empty-state"><div class="es-icon">${cfg.icon}</div>
+      <div class="es-title">Aucun${cfg.emptyA==='une'?'e':''} ${cfg.empty}</div>
+      <div class="es-text">Ajoutez vos ${cfg.empty}s : ils apparaîtront pour les bâtiments du type associé.</div></div>`;
     panel.innerHTML = html;
     return;
   }
@@ -1685,20 +1703,18 @@ function renderCatalog(kind) {
 function openCatModal(kind, id) {
   catEditKind = kind;
   catEditId = id || null;
-  const isVeh = kind==='vehicle';
+  const cfg = KINDS[kind];
 
-  // type de bâtiment
   document.getElementById('cat-btype').innerHTML =
     Object.entries(TYPES).map(([k,t])=>`<option value="${k}">${t.emoji} ${t.label}</option>`).join('');
 
-  document.getElementById('cat-name-label').textContent = isVeh ? 'Nom du véhicule *' : "Nom de l'extension *";
-  document.getElementById('cat-name').placeholder = isVeh ? 'Ex : FPT, VSAV…' : 'Ex : Tour, Garage annexe…';
+  document.getElementById('cat-name-label').textContent = cfg.nameLabel;
+  document.getElementById('cat-name').placeholder = cfg.ph;
 
-  const arr = isVeh ? catalog.vehicles : catalog.extensions;
+  const arr = cfg.arr();
   const item = id ? arr.find(x=>x.id===id) : null;
 
-  document.getElementById('modal-cat-ttl').textContent =
-    (id?'Modifier ':'Nouveau ') + (isVeh?'véhicule':'extension');
+  document.getElementById('modal-cat-ttl').textContent = (id?'Modifier ':'Nouveau ') + cfg.ttl;
   document.getElementById('cat-name').value = item ? item.name : '';
   document.getElementById('cat-btype').value = item ? item.btype : 'pompiers';
   document.getElementById('cat-del-btn').style.display = id ? 'block' : 'none';
@@ -1714,7 +1730,7 @@ function saveCatItem() {
     document.getElementById('cat-name').focus(); return;
   }
   const btype = document.getElementById('cat-btype').value;
-  const arr = catEditKind==='vehicle' ? catalog.vehicles : catalog.extensions;
+  const arr = KINDS[catEditKind].arr();
 
   if (catEditId) {
     const it = arr.find(x=>x.id===catEditId);
@@ -1729,8 +1745,7 @@ function saveCatItem() {
 
 function deleteCatItem(id, kind) {
   const k = kind || catEditKind;
-  const isVeh = k==='vehicle';
-  const arr = isVeh ? catalog.vehicles : catalog.extensions;
+  const arr = KINDS[k].arr();
   const targetId = id || catEditId;
   const it = arr.find(x=>x.id===targetId);
   if (!it) return;
@@ -1753,7 +1768,7 @@ function deleteCatItem(id, kind) {
 function showGlobalStats() {
   const total=buildings.length;
   const vTotal=buildings.reduce((s,b)=>s+(b.vehicules||[]).length,0);
-  const pTotal=buildings.reduce((s,b)=>s+GRADES.reduce((ss,g)=>ss+(b.personnel?.[g.id]||0),0),0);
+  const pTotal=buildings.reduce((s,b)=>s+personnelTotal(b),0);
   const byType=Object.entries(TYPES).map(([k,t])=>`${t.emoji} ${t.label}: ${buildings.filter(b=>b.type===k).length}`).join('\n');
   showConfirm('📊 Statistiques globales',
     `${total} bâtiment${total!==1?'s':''} · ${vTotal} véhicule${vTotal!==1?'s':''} · ${pTotal} personnel${pTotal!==1?'s':''}\n\n${byType}`,
