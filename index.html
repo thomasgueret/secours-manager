@@ -11,6 +11,7 @@
   <title>SecoursSim Manager</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -307,6 +308,27 @@
       display: flex; align-items: center; justify-content: center; gap: 8px;
     }
     .cat-add-btn:active { background: var(--accent2); }
+
+    /* Import preview */
+    .imp-summary { font-size: 13px; color: var(--text); margin-bottom: 4px; }
+    .imp-summary b { color: var(--blue); }
+    .imp-row {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;
+    }
+    .imp-row .ir-name { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+    .imp-row .ir-changes { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .imp-warn {
+      background: rgba(210,153,34,0.12); border: 1px solid rgba(210,153,34,0.35);
+      border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;
+      font-size: 12px; color: var(--yellow);
+    }
+    .imp-help {
+      font-size: 11.5px; color: var(--muted); line-height: 1.6;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+    }
+    .imp-help code { color: var(--text); font-family: monospace; }
 
     .section-title {
       font-size: 11px; font-weight: 700;
@@ -739,7 +761,14 @@
         <div class="data-tab"        onclick="switchDataTab('grades')">Grades</div>
       </div>
       <div id="data-panels">
-        <div id="dpanel-batiments"  class="data-panel active"><div id="data-list"></div></div>
+        <div id="dpanel-batiments"  class="data-panel active">
+          <button class="cat-add-btn" style="background:var(--blue);color:#06203f"
+                  onclick="document.getElementById('import-file').click()">
+            <span style="font-size:17px">⬆️</span> Importer un fichier Excel
+          </button>
+          <input type="file" id="import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(event)">
+          <div id="data-list"></div>
+        </div>
         <div id="dpanel-vehicules"  class="data-panel"></div>
         <div id="dpanel-extensions" class="data-panel"></div>
         <div id="dpanel-grades"     class="data-panel"></div>
@@ -881,6 +910,18 @@
       <button class="btn-primary" onclick="saveCatItem()">Enregistrer</button>
       <button class="btn-danger" id="cat-del-btn" style="display:none" onclick="deleteCatItem()">🗑 Supprimer</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL: Aperçu d'import -->
+<div class="modal-overlay" id="modal-import">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Aperçu de l'import</div>
+      <button class="modal-close" onclick="closeModal('modal-import')">×</button>
+    </div>
+    <div class="modal-body" id="import-body"></div>
   </div>
 </div>
 
@@ -1760,6 +1801,200 @@ function deleteCatItem(id, kind) {
       renderCatalog(k);
     }
   );
+}
+
+// ═══════════════════════════════
+//  IMPORT EXCEL
+// ═══════════════════════════════
+let pendingImport = null;
+
+// Normalisation : minuscules, sans accents, sans espaces/ponctuation
+function norm(s){
+  return (s==null?'':s.toString()).trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+}
+
+// En-têtes reconnus pour les propriétés simples du bâtiment
+const IMPORT_PROPS = {
+  niveau:'niveau', level:'niveau',
+  placegaragetotal:'placeGarageTotal', placegarage:'placeGarageTotal',
+  placesgarage:'placeGarageTotal', garage:'placeGarageTotal', garages:'placeGarageTotal',
+  placevestiairetotal:'placeVestiaireTotal', placevestiaire:'placeVestiaireTotal',
+  placesvestiaire:'placeVestiaireTotal', vestiaire:'placeVestiaireTotal', vestiaires:'placeVestiaireTotal',
+  specialite:'specialite', extension:'extension'
+};
+const NUM_PROPS = ['niveau','placeGarageTotal','placeVestiaireTotal'];
+const NAME_HEADERS = ['nom','name','batiment','batiments','building','nombatiment'];
+const VEH_HEADERS  = ['vehicules','vehicule','vehicles','vehicle'];
+
+// Parse une liste libre type "FPT x2, VSAV, EPA x1"
+function parseVehicleList(txt){
+  const out=[];
+  txt.toString().split(/[,;\n]+/).forEach(part=>{
+    part=part.trim(); if(!part) return;
+    const m=part.match(/^(.+?)\s*[x×*]\s*(\d+)$/i);
+    if(m) out.push({type:m[1].trim(), count:parseInt(m[2])||1});
+    else  out.push({type:part, count:1});
+  });
+  return out;
+}
+
+function handleImportFile(ev){
+  const file=ev.target.files[0];
+  ev.target.value='';
+  if(!file) return;
+  if(typeof XLSX==='undefined'){ alert("La librairie de lecture Excel n'a pas pu se charger (connexion Internet requise au premier lancement)."); return; }
+  if(!buildings.length){ alert("Placez d'abord vos bâtiments sur la carte. L'import les complète mais ne les crée pas."); return; }
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!rows.length){ alert('Le fichier ne contient aucune ligne de données.'); return; }
+      pendingImport=analyzeImport(rows);
+      showImportPreview();
+    }catch(err){ alert('Erreur de lecture du fichier : '+err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function analyzeImport(rows){
+  const headers=Object.keys(rows[0]);
+  const nameHeader=headers.find(h=>NAME_HEADERS.includes(norm(h)));
+  const updates=[]; const unmatched=[]; let ignoredCols=new Set();
+
+  if(!nameHeader) return {error:"Aucune colonne « Nom » détectée dans le fichier."};
+
+  rows.forEach(row=>{
+    const rawName=row[nameHeader];
+    if(rawName==null || rawName.toString().trim()==='') return;
+    const b=buildings.find(x=>norm(x.nom)===norm(rawName));
+    if(!b){ unmatched.push(rawName.toString().trim()); return; }
+
+    const props={}; const personnel={}; const personnelNames={};
+    let vehSpecs=[];
+
+    headers.forEach(h=>{
+      if(h===nameHeader) return;
+      const nh=norm(h);
+      const val=row[h];
+      const empty=(val==null||val.toString().trim()==='');
+
+      // 1) propriété simple
+      if(IMPORT_PROPS[nh]){ if(!empty) props[IMPORT_PROPS[nh]]=val; return; }
+      // 2) liste libre de véhicules
+      if(VEH_HEADERS.includes(nh)){ if(!empty) vehSpecs=vehSpecs.concat(parseVehicleList(val)); return; }
+      // 3) colonne = nom d'un véhicule du catalogue (pour ce type) -> compte
+      const vMatch=catVehiclesFor(b.type).find(v=>norm(v.name)===nh);
+      if(vMatch){ const n=parseInt(val)||0; if(n>0) vehSpecs.push({type:vMatch.name,count:n}); return; }
+      // 4) colonne = nom d'un grade du catalogue (pour ce type) -> effectif
+      const gMatch=catGradesFor(b.type).find(g=>norm(g.name)===nh);
+      if(gMatch){ if(!empty){ personnel[gMatch.id]=parseInt(val)||0; personnelNames[gMatch.name]=parseInt(val)||0; } return; }
+      // 5) inconnu
+      if(!empty) ignoredCols.add(h);
+    });
+
+    updates.push({ id:b.id, name:b.nom, props, personnel, personnelNames, vehSpecs });
+  });
+
+  return { updates, unmatched, ignoredCols:[...ignoredCols] };
+}
+
+function showImportPreview(){
+  const r=pendingImport;
+  const body=document.getElementById('import-body');
+  if(r.error){
+    body.innerHTML=`<div class="imp-warn">${r.error}</div>${importHelpHtml()}
+      <button class="btn-primary" onclick="closeModal('modal-import')">Fermer</button>`;
+    document.getElementById('modal-import').classList.add('open'); return;
+  }
+
+  let html=`<div class="imp-summary"><b>${r.updates.length}</b> bâtiment(s) reconnu(s)`;
+  if(r.unmatched.length) html+=` · <span style="color:var(--yellow)">${r.unmatched.length} non trouvé(s)</span>`;
+  html+=`</div>`;
+
+  if(!r.updates.length){
+    html+=`<div class="imp-warn">Aucun nom de bâtiment du fichier ne correspond à un bâtiment placé dans l'application. Vérifiez l'orthographe des noms.</div>`;
+  }
+
+  r.updates.forEach(u=>{
+    const parts=[];
+    Object.entries(u.props).forEach(([k,v])=>{
+      const label={niveau:'Niveau',placeGarageTotal:'Garage',placeVestiaireTotal:'Vestiaire',specialite:'Spécialité',extension:'Extension'}[k]||k;
+      parts.push(`${label} → ${v}`);
+    });
+    const vTot=u.vehSpecs.reduce((s,x)=>s+x.count,0);
+    if(u.vehSpecs.length) parts.push(`${vTot} véhicule(s)`);
+    const pTot=Object.values(u.personnel).reduce((s,n)=>s+(n||0),0);
+    if(Object.keys(u.personnel).length) parts.push(`${pTot} personnel(s)`);
+    html+=`<div class="imp-row"><div class="ir-name">${u.name}</div>
+      <div class="ir-changes">${parts.length?parts.join(' · '):'aucune donnée reconnue'}</div></div>`;
+  });
+
+  if(r.unmatched.length){
+    html+=`<div class="imp-warn">Non trouvés : ${r.unmatched.slice(0,12).map(n=>'« '+n+' »').join(', ')}${r.unmatched.length>12?'…':''}</div>`;
+  }
+  if(r.ignoredCols.length){
+    html+=`<div class="imp-warn">Colonnes ignorées (non reconnues) : ${r.ignoredCols.join(', ')}</div>`;
+  }
+
+  html+=importHelpHtml();
+  if(r.updates.length){
+    html+=`<button class="btn-primary" onclick="applyImport()">Appliquer l'import</button>`;
+  }
+  html+=`<button class="btn-danger" style="background:var(--bg3);color:var(--text);border-color:var(--border)" onclick="closeModal('modal-import')">Annuler</button>`;
+
+  body.innerHTML=html;
+  document.getElementById('modal-import').classList.add('open');
+}
+
+function importHelpHtml(){
+  return `<div class="imp-help">
+    <b style="color:var(--text)">Format attendu</b> — 1 ligne par bâtiment, 1ʳᵉ ligne = en-têtes.<br>
+    Colonne <code>Nom</code> (obligatoire, doit correspondre au nom dans l'app).<br>
+    Colonnes possibles : <code>Niveau</code>, <code>Garage</code>, <code>Vestiaire</code>, <code>Specialite</code>, <code>Extension</code>.<br>
+    Une colonne par <b>type de véhicule</b> (ex. <code>FPT</code>, <code>VSAV</code>) avec le nombre, ou une colonne <code>Vehicules</code> = <code>FPT x2, VSAV</code>.<br>
+    Une colonne par <b>grade</b> (ex. <code>Sapeur</code>) avec l'effectif.<br>
+    Les noms de véhicules/grades suivent votre catalogue (onglets Véhicules / Grades).
+  </div>`;
+}
+
+function applyImport(){
+  const r=pendingImport;
+  if(!r||!r.updates) return;
+  r.updates.forEach(u=>{
+    const b=buildings.find(x=>x.id===u.id);
+    if(!b) return;
+    // propriétés
+    Object.entries(u.props).forEach(([k,v])=>{
+      b[k]=NUM_PROPS.includes(k)?(parseInt(v)||0):v.toString().trim();
+    });
+    // personnels (écrase les grades fournis)
+    if(Object.keys(u.personnel).length){
+      if(!b.personnel) b.personnel={};
+      Object.entries(u.personnel).forEach(([gid,n])=>{ b.personnel[gid]=Math.max(0,n||0); });
+      b.placeVestiaireOccupe=personnelTotal(b);
+    }
+    // véhicules (remplace la liste si des véhicules sont fournis)
+    if(u.vehSpecs.length){
+      const list=[];
+      u.vehSpecs.forEach(spec=>{
+        for(let i=0;i<spec.count;i++)
+          list.push({ id:uid(), nom:`${spec.type} ${i+1}`, type:spec.type, statut:'disponible' });
+      });
+      b.vehicules=list;
+      b.placeGarageOccupe=list.length;
+    }
+    refreshMarker(b);
+  });
+  save();
+  closeModal('modal-import');
+  renderDataActive();
+  refreshFilterUI(); applyFilters();
+  const n=r.updates.length;
+  showConfirm('✅ Import terminé', `${n} bâtiment(s) mis à jour avec succès.`, ()=>{});
+  pendingImport=null;
 }
 
 // ═══════════════════════════════
