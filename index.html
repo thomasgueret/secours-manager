@@ -941,6 +941,10 @@
 // ═══════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════
+// ⚠️ Incrémenter à CHAQUE déploiement pour suivre la version en ligne
+const APP_VERSION = '1.6.0';
+const APP_BUILD   = '2026-06-15';
+
 const TYPES = {
   pompiers:      { label: 'Pompiers',        emoji: '🚒', color: '#dc2626' },
   police:        { label: 'Police',          emoji: '🚔', color: '#1d4ed8' },
@@ -2039,7 +2043,7 @@ function showGlobalStats() {
   const pTotal=buildings.reduce((s,b)=>s+personnelTotal(b),0);
   const byType=Object.entries(TYPES).map(([k,t])=>`${t.emoji} ${t.label}: ${buildings.filter(b=>b.type===k).length}`).join('\n');
   showConfirm('📊 Statistiques globales',
-    `${total} bâtiment${total!==1?'s':''} · ${vTotal} véhicule${vTotal!==1?'s':''} · ${pTotal} personnel${pTotal!==1?'s':''}\n\n${byType}`,
+    `Version ${APP_VERSION} (${APP_BUILD})\n\n${total} bâtiment${total!==1?'s':''} · ${vTotal} véhicule${vTotal!==1?'s':''} · ${pTotal} personnel${pTotal!==1?'s':''}\n\n${byType}`,
     ()=>{}
   );
 }
