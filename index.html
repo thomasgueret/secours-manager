@@ -1814,29 +1814,58 @@ function norm(s){
     .normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
 }
 
-// En-têtes reconnus pour les propriétés simples du bâtiment
-const IMPORT_PROPS = {
-  niveau:'niveau', level:'niveau',
-  placegaragetotal:'placeGarageTotal', placegarage:'placeGarageTotal',
-  placesgarage:'placeGarageTotal', garage:'placeGarageTotal', garages:'placeGarageTotal',
-  placevestiairetotal:'placeVestiaireTotal', placevestiaire:'placeVestiaireTotal',
-  placesvestiaire:'placeVestiaireTotal', vestiaire:'placeVestiaireTotal', vestiaires:'placeVestiaireTotal',
-  specialite:'specialite', extension:'extension'
-};
 const NUM_PROPS = ['niveau','placeGarageTotal','placeVestiaireTotal'];
-const NAME_HEADERS = ['nom','name','batiment','batiments','building','nombatiment'];
-const VEH_HEADERS  = ['vehicules','vehicule','vehicles','vehicle'];
 
-// Parse une liste libre type "FPT x2, VSAV, EPA x1"
-function parseVehicleList(txt){
+// Récupère une feuille par son nom (insensible casse/accents)
+function findSheet(wb, name){
+  const t=norm(name);
+  const sn=wb.SheetNames.find(s=>norm(s)===t);
+  return sn ? wb.Sheets[sn] : null;
+}
+
+// Convertit une feuille en objets, en détectant automatiquement la ligne d'en-têtes
+function sheetObjects(ws){
+  if(!ws) return [];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+  let hi=-1;
+  for(let i=0;i<Math.min(aoa.length,6);i++){
+    const set=(aoa[i]||[]).map(norm);
+    if(set.includes('nom')||set.includes('batiment')||set.includes('grade')){ hi=i; break; }
+  }
+  if(hi<0) hi=0;
+  const headers=(aoa[hi]||[]).map(h=>h.toString());
   const out=[];
-  txt.toString().split(/[,;\n]+/).forEach(part=>{
-    part=part.trim(); if(!part) return;
-    const m=part.match(/^(.+?)\s*[x×*]\s*(\d+)$/i);
-    if(m) out.push({type:m[1].trim(), count:parseInt(m[2])||1});
-    else  out.push({type:part, count:1});
-  });
+  for(let i=hi+1;i<aoa.length;i++){
+    const row=aoa[i];
+    if(!row || row.every(c=>c===''||c==null)) continue;
+    const o={};
+    headers.forEach((h,j)=>{ o[h]=(row[j]!==undefined?row[j]:''); });
+    out.push(o);
+  }
   return out;
+}
+
+// Valeur d'une colonne par en-tête normalisé (premier match)
+function col(obj, names){
+  for(const k of Object.keys(obj)){ if(names.includes(norm(k))) return obj[k]; }
+  return '';
+}
+
+// "4 / 12" -> 12  ·  "12" -> 12  ·  sinon null
+function parseTotal(v){
+  const s=(v==null?'':v).toString();
+  const m=s.match(/(\d+)\s*\/\s*(\d+)/);
+  if(m) return parseInt(m[2]);
+  const n=parseInt(s); return isNaN(n)?null:n;
+}
+
+function mapStatut(s){
+  const n=norm(s);
+  if(n.includes('indisponible')||n.includes('horsservice')) return 'indisponible';
+  if(n.includes('maintenance')||n.includes('atelier')||n.includes('reparation')) return 'maintenance';
+  if(n.includes('disponible')) return 'disponible';
+  if(n) return 'intervention'; // "sur les lieux", "en route", "transport"…
+  return 'disponible';
 }
 
 function handleImportFile(ev){
@@ -1849,56 +1878,56 @@ function handleImportFile(ev){
   reader.onload=e=>{
     try{
       const wb=XLSX.read(e.target.result,{type:'array'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-      if(!rows.length){ alert('Le fichier ne contient aucune ligne de données.'); return; }
-      pendingImport=analyzeImport(rows);
+      pendingImport=analyzeImport(wb);
       showImportPreview();
     }catch(err){ alert('Erreur de lecture du fichier : '+err.message); }
   };
   reader.readAsArrayBuffer(file);
 }
 
-function analyzeImport(rows){
-  const headers=Object.keys(rows[0]);
-  const nameHeader=headers.find(h=>NAME_HEADERS.includes(norm(h)));
-  const updates=[]; const unmatched=[]; let ignoredCols=new Set();
+// Analyse l'export multi-feuilles (Batiments / Vehicules / Personnel), liaison par NOM de bâtiment
+function analyzeImport(wb){
+  const bat=sheetObjects(findSheet(wb,'Batiments'));
+  const veh=sheetObjects(findSheet(wb,'Vehicules'));
+  const per=sheetObjects(findSheet(wb,'Personnel'));
+  if(!bat.length && !veh.length && !per.length)
+    return {error:"Aucune feuille reconnue. Le fichier doit contenir des feuilles « Batiments », « Vehicules » et/ou « Personnel »."};
 
-  if(!nameHeader) return {error:"Aucune colonne « Nom » détectée dans le fichier."};
+  const byId={}; const unmatched=new Set();
+  function ensure(name){
+    if(name==null || name.toString().trim()==='') return null;
+    const b=buildings.find(x=>norm(x.nom)===norm(name));
+    if(!b){ unmatched.add(name.toString().trim()); return null; }
+    if(!byId[b.id]) byId[b.id]={ id:b.id, name:b.nom, btype:b.type, props:{}, vehicles:[], personnel:{} };
+    return byId[b.id];
+  }
 
-  rows.forEach(row=>{
-    const rawName=row[nameHeader];
-    if(rawName==null || rawName.toString().trim()==='') return;
-    const b=buildings.find(x=>norm(x.nom)===norm(rawName));
-    if(!b){ unmatched.push(rawName.toString().trim()); return; }
-
-    const props={}; const personnel={}; const personnelNames={};
-    let vehSpecs=[];
-
-    headers.forEach(h=>{
-      if(h===nameHeader) return;
-      const nh=norm(h);
-      const val=row[h];
-      const empty=(val==null||val.toString().trim()==='');
-
-      // 1) propriété simple
-      if(IMPORT_PROPS[nh]){ if(!empty) props[IMPORT_PROPS[nh]]=val; return; }
-      // 2) liste libre de véhicules
-      if(VEH_HEADERS.includes(nh)){ if(!empty) vehSpecs=vehSpecs.concat(parseVehicleList(val)); return; }
-      // 3) colonne = nom d'un véhicule du catalogue (pour ce type) -> compte
-      const vMatch=catVehiclesFor(b.type).find(v=>norm(v.name)===nh);
-      if(vMatch){ const n=parseInt(val)||0; if(n>0) vehSpecs.push({type:vMatch.name,count:n}); return; }
-      // 4) colonne = nom d'un grade du catalogue (pour ce type) -> effectif
-      const gMatch=catGradesFor(b.type).find(g=>norm(g.name)===nh);
-      if(gMatch){ if(!empty){ personnel[gMatch.id]=parseInt(val)||0; personnelNames[gMatch.name]=parseInt(val)||0; } return; }
-      // 5) inconnu
-      if(!empty) ignoredCols.add(h);
-    });
-
-    updates.push({ id:b.id, name:b.nom, props, personnel, personnelNames, vehSpecs });
+  bat.forEach(r=>{
+    const u=ensure(col(r,['nom','name','batiment'])); if(!u) return;
+    const niv=col(r,['niveau','level']);
+    const pv=parseTotal(col(r,['placesvehicules','placevehicules','placesgarage','garage']));
+    const pp=parseTotal(col(r,['placespersonnel','placepersonnel','placesvestiaire','vestiaire']));
+    const spe=col(r,['specialites','specialite']);
+    if(niv!=='' && niv!=null) u.props.niveau=parseInt(niv)||0;
+    if(pv!=null) u.props.placeGarageTotal=pv;
+    if(pp!=null) u.props.placeVestiaireTotal=pp;
+    if(spe) u.props.specialite=spe.toString();
   });
 
-  return { updates, unmatched, ignoredCols:[...ignoredCols] };
+  veh.forEach(r=>{
+    const u=ensure(col(r,['batiment','batiments','rattachement'])); if(!u) return;
+    const nom=(col(r,['nom','immatriculation'])||'').toString();
+    const modele=(col(r,['modele','type'])||'').toString();
+    u.vehicles.push({ nom: nom||modele||'Véhicule', type:(modele||nom||'Véhicule'), statut:mapStatut(col(r,['statut'])) });
+  });
+
+  per.forEach(r=>{
+    const u=ensure(col(r,['batiment','batiments'])); if(!u) return;
+    const grade=((col(r,['grade'])||'—').toString().trim())||'—';
+    u.personnel[grade]=(u.personnel[grade]||0)+1;
+  });
+
+  return { updates:Object.values(byId), unmatched:[...unmatched] };
 }
 
 function showImportPreview(){
@@ -1915,28 +1944,24 @@ function showImportPreview(){
   html+=`</div>`;
 
   if(!r.updates.length){
-    html+=`<div class="imp-warn">Aucun nom de bâtiment du fichier ne correspond à un bâtiment placé dans l'application. Vérifiez l'orthographe des noms.</div>`;
+    html+=`<div class="imp-warn">Aucun nom de bâtiment du fichier ne correspond à un bâtiment placé dans l'application. Vérifiez que les noms sont identiques.</div>`;
   }
 
   r.updates.forEach(u=>{
     const parts=[];
-    Object.entries(u.props).forEach(([k,v])=>{
-      const label={niveau:'Niveau',placeGarageTotal:'Garage',placeVestiaireTotal:'Vestiaire',specialite:'Spécialité',extension:'Extension'}[k]||k;
-      parts.push(`${label} → ${v}`);
-    });
-    const vTot=u.vehSpecs.reduce((s,x)=>s+x.count,0);
-    if(u.vehSpecs.length) parts.push(`${vTot} véhicule(s)`);
+    if(u.props.niveau!=null)              parts.push(`Niveau → ${u.props.niveau}`);
+    if(u.props.placeGarageTotal!=null)    parts.push(`Garage → ${u.props.placeGarageTotal}`);
+    if(u.props.placeVestiaireTotal!=null) parts.push(`Vestiaire → ${u.props.placeVestiaireTotal}`);
+    if(u.props.specialite)                parts.push(`Spécialité`);
+    if(u.vehicles.length)                 parts.push(`${u.vehicles.length} véhicule(s)`);
     const pTot=Object.values(u.personnel).reduce((s,n)=>s+(n||0),0);
-    if(Object.keys(u.personnel).length) parts.push(`${pTot} personnel(s)`);
+    if(pTot)                              parts.push(`${pTot} personnel(s)`);
     html+=`<div class="imp-row"><div class="ir-name">${u.name}</div>
       <div class="ir-changes">${parts.length?parts.join(' · '):'aucune donnée reconnue'}</div></div>`;
   });
 
   if(r.unmatched.length){
-    html+=`<div class="imp-warn">Non trouvés : ${r.unmatched.slice(0,12).map(n=>'« '+n+' »').join(', ')}${r.unmatched.length>12?'…':''}</div>`;
-  }
-  if(r.ignoredCols.length){
-    html+=`<div class="imp-warn">Colonnes ignorées (non reconnues) : ${r.ignoredCols.join(', ')}</div>`;
+    html+=`<div class="imp-warn">Non trouvés (à placer/renommer dans l'app) : ${r.unmatched.slice(0,12).map(n=>'« '+n+' »').join(', ')}${r.unmatched.length>12?` … (+${r.unmatched.length-12})`:''}</div>`;
   }
 
   html+=importHelpHtml();
@@ -1951,18 +1976,20 @@ function showImportPreview(){
 
 function importHelpHtml(){
   return `<div class="imp-help">
-    <b style="color:var(--text)">Format attendu</b> — 1 ligne par bâtiment, 1ʳᵉ ligne = en-têtes.<br>
-    Colonne <code>Nom</code> (obligatoire, doit correspondre au nom dans l'app).<br>
-    Colonnes possibles : <code>Niveau</code>, <code>Garage</code>, <code>Vestiaire</code>, <code>Specialite</code>, <code>Extension</code>.<br>
-    Une colonne par <b>type de véhicule</b> (ex. <code>FPT</code>, <code>VSAV</code>) avec le nombre, ou une colonne <code>Vehicules</code> = <code>FPT x2, VSAV</code>.<br>
-    Une colonne par <b>grade</b> (ex. <code>Sapeur</code>) avec l'effectif.<br>
-    Les noms de véhicules/grades suivent votre catalogue (onglets Véhicules / Grades).
+    <b style="color:var(--text)">Format attendu</b> — l'export du jeu avec les feuilles
+    <code>Batiments</code>, <code>Vehicules</code>, <code>Personnel</code>.<br>
+    La liaison se fait par le <b>nom du bâtiment</b> (colonne <code>NOM</code> dans Batiments,
+    <code>BATIMENT</code> dans Vehicules et Personnel) : placez d'abord les bâtiments dans l'app avec le même nom.<br>
+    Sont importés : <b>niveau</b>, <b>places véhicules/personnel</b> (format « occupé / total »),
+    <b>spécialités</b>, la <b>liste des véhicules</b> et les <b>effectifs par grade</b>.<br>
+    Les types de véhicules et grades absents de vos catalogues sont créés automatiquement.
   </div>`;
 }
 
 function applyImport(){
   const r=pendingImport;
   if(!r||!r.updates) return;
+  let catChanged=false;
   r.updates.forEach(u=>{
     const b=buildings.find(x=>x.id===u.id);
     if(!b) return;
@@ -1970,30 +1997,36 @@ function applyImport(){
     Object.entries(u.props).forEach(([k,v])=>{
       b[k]=NUM_PROPS.includes(k)?(parseInt(v)||0):v.toString().trim();
     });
-    // personnels (écrase les grades fournis)
-    if(Object.keys(u.personnel).length){
-      if(!b.personnel) b.personnel={};
-      Object.entries(u.personnel).forEach(([gid,n])=>{ b.personnel[gid]=Math.max(0,n||0); });
-      b.placeVestiaireOccupe=personnelTotal(b);
-    }
-    // véhicules (remplace la liste si des véhicules sont fournis)
-    if(u.vehSpecs.length){
-      const list=[];
-      u.vehSpecs.forEach(spec=>{
-        for(let i=0;i<spec.count;i++)
-          list.push({ id:uid(), nom:`${spec.type} ${i+1}`, type:spec.type, statut:'disponible' });
+    // véhicules (remplace la liste si la feuille en fournit)
+    if(u.vehicles.length){
+      b.vehicules=u.vehicles.map(v=>({ id:uid(), nom:v.nom, type:v.type, statut:v.statut }));
+      b.placeGarageOccupe=b.vehicules.length;
+      // enrichit le catalogue de véhicules pour ce type de bâtiment
+      u.vehicles.forEach(v=>{
+        if(v.type && !catalog.vehicles.some(c=>c.btype===b.type && norm(c.name)===norm(v.type))){
+          catalog.vehicles.push({ id:uid(), name:v.type, btype:b.type }); catChanged=true;
+        }
       });
-      b.vehicules=list;
-      b.placeGarageOccupe=list.length;
+    }
+    // personnels par grade (remplace si la feuille en fournit)
+    if(Object.keys(u.personnel).length){
+      const pObj={};
+      Object.entries(u.personnel).forEach(([gname,count])=>{
+        let g=catalog.grades.find(c=>c.btype===b.type && norm(c.name)===norm(gname));
+        if(!g){ g={ id:uid(), name:gname, btype:b.type }; catalog.grades.push(g); catChanged=true; }
+        pObj[g.id]=count;
+      });
+      b.personnel=pObj;
+      b.placeVestiaireOccupe=personnelTotal(b);
     }
     refreshMarker(b);
   });
+  if(catChanged) saveCatalog();
   save();
   closeModal('modal-import');
   renderDataActive();
   refreshFilterUI(); applyFilters();
-  const n=r.updates.length;
-  showConfirm('✅ Import terminé', `${n} bâtiment(s) mis à jour avec succès.`, ()=>{});
+  showConfirm('✅ Import terminé', `${r.updates.length} bâtiment(s) mis à jour avec succès.`, ()=>{});
   pendingImport=null;
 }
 
