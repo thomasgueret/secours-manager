@@ -942,7 +942,7 @@
 //  CONSTANTS
 // ═══════════════════════════════
 // ⚠️ Incrémenter à CHAQUE déploiement pour suivre la version en ligne
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const APP_BUILD   = '2026-06-15';
 
 const TYPES = {
@@ -1863,6 +1863,23 @@ function parseTotal(v){
   const n=parseInt(s); return isNaN(n)?null:n;
 }
 
+// Extrait l'abréviation du type depuis le nom du véhicule.
+// Format : "<TYPE> <num d'unité> - <initiales caserne>", ex. "FPTSR 01 - CAR" -> "FPTSR".
+// Le type peut contenir des chiffres ("CCFS 13000 01 - XXX" -> "CCFS 13000") : on coupe
+// au dernier nombre placé juste avant le tiret (= numéro d'unité), pas à un nombre de caractères fixe.
+function extractVehicleType(nom){
+  const s=(nom==null?'':nom).toString().trim();
+  if(!s) return '';
+  // numéro d'unité suivi du tiret + caserne
+  let m=s.match(/^(.+?)\s+\d+\s*-\s*\S/);
+  if(m) return m[1].trim();
+  // numéro d'unité + tiret sans caserne
+  m=s.match(/^(.+?)\s+\d+\s*-\s*$/);
+  if(m) return m[1].trim();
+  // pas de tiret : on ne peut pas distinguer le numéro du type, on garde tel quel
+  return s;
+}
+
 function mapStatut(s){
   const n=norm(s);
   if(n.includes('indisponible')||n.includes('horsservice')) return 'indisponible';
@@ -1922,7 +1939,8 @@ function analyzeImport(wb){
     const u=ensure(col(r,['batiment','batiments','rattachement'])); if(!u) return;
     const nom=(col(r,['nom','immatriculation'])||'').toString();
     const modele=(col(r,['modele','type'])||'').toString();
-    u.vehicles.push({ nom: nom||modele||'Véhicule', type:(modele||nom||'Véhicule'), statut:mapStatut(col(r,['statut'])) });
+    const type=extractVehicleType(nom) || modele || nom || 'Véhicule';
+    u.vehicles.push({ nom: nom||type||'Véhicule', type, statut:mapStatut(col(r,['statut'])) });
   });
 
   per.forEach(r=>{
