@@ -969,7 +969,7 @@
 //  CONSTANTS
 // ═══════════════════════════════
 // ⚠️ Incrémenter à CHAQUE déploiement pour suivre la version en ligne
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.6.3';
 const APP_BUILD   = '2026-06-15';
 
 const TYPES = {
@@ -1257,7 +1257,8 @@ function applyFilters() {
     if (vis.has(b.id)) {
       if (!mapInst.hasLayer(m)) m.addTo(mapInst);
       m.setOpacity(1);
-    } else if (fadeUnmatched) {
+    } else if (fadeUnmatched && typeMatchesFilter(b)) {
+      // transparence : seulement les bâtiments du bon type (le filtre de type reste appliqué)
       if (!mapInst.hasLayer(m)) m.addTo(mapInst);
       m.setOpacity(0.3);
     } else {
