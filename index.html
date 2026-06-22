@@ -264,6 +264,19 @@
     }
     .fp-reset:active { background: var(--border); }
 
+    .fp-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .fp-type-chip {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 9px; padding: 8px 9px;
+      font-size: 12px; cursor: pointer; user-select: none;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fp-type-chip .ftc-emoji { font-size: 15px; flex-shrink: 0; }
+    .fp-type-chip .ftc-name { overflow: hidden; text-overflow: ellipsis; }
+    .fp-type-chip.sel { background: rgba(230,57,70,0.15); border-color: var(--accent); }
+    .fp-type-chip.sel .ftc-name { color: var(--accent); font-weight: 700; }
+
     /* ── DATA VIEW ── */
     #view-data { flex-direction: column; }
 
@@ -717,6 +730,15 @@
         <div class="fp-body">
 
           <div class="fp-section">
+            <div class="fp-section-title">Affichage</div>
+            <label class="fp-switch-row">
+              <span>Bâtiments hors filtre en transparence</span>
+              <input type="checkbox" id="fade-toggle" onchange="onFadeToggle()">
+              <span class="fp-switch"></span>
+            </label>
+          </div>
+
+          <div class="fp-section">
             <div class="fp-section-title">Rayon d'action</div>
             <label class="fp-switch-row">
               <span>Afficher les rayons</span>
@@ -728,6 +750,11 @@
               <input type="number" id="radius-km" value="10" min="1" max="2000"
                      oninput="onRadiusKm()">
             </div>
+          </div>
+
+          <div class="fp-section">
+            <div class="fp-section-title">Filtre par type de bâtiment</div>
+            <div class="fp-type-grid" id="type-filter-grid"></div>
           </div>
 
           <div class="fp-section">
@@ -743,7 +770,7 @@
             </div>
             <div class="fp-expr" id="filter-expr"></div>
             <div class="fp-veh-list" id="vehicle-filter-list"></div>
-            <button class="fp-reset" onclick="clearFilter()">Réinitialiser le filtre</button>
+            <button class="fp-reset" onclick="clearFilter()">Réinitialiser les filtres</button>
           </div>
 
         </div>
@@ -942,7 +969,7 @@
 //  CONSTANTS
 // ═══════════════════════════════
 // ⚠️ Incrémenter à CHAQUE déploiement pour suivre la version en ligne
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const APP_BUILD   = '2026-06-15';
 
 const TYPES = {
@@ -1004,6 +1031,8 @@ let catEditId   = null;
 // Filtres & options carte
 let filterTerms   = [];        // [{type, op}] op: null | 'and' | 'or'
 let addMode       = 'replace'; // mode tactile : 'replace' | 'and' | 'or'
+let selectedTypes = new Set(); // filtre par type de bâtiment (vide = tous)
+let fadeUnmatched = false;     // bâtiments hors filtre en transparence (sinon masqués)
 let radiusEnabled = false;
 let radiusKm      = 10;
 let radiusLayers  = [];
@@ -1209,21 +1238,38 @@ function buildingMatchesFilter(b) {
   return filterGroups().some(g => g.every(type => have.has(type)));
 }
 
+function typeMatchesFilter(b) {
+  return selectedTypes.size === 0 || selectedTypes.has(b.type);
+}
+
 function visibleBuildingIds() {
   const s = new Set();
-  buildings.forEach(b => { if (buildingMatchesFilter(b)) s.add(b.id); });
+  buildings.forEach(b => { if (buildingMatchesFilter(b) && typeMatchesFilter(b)) s.add(b.id); });
   return s;
 }
 
 function applyFilters() {
   if (!mapInst) return;
   const vis = visibleBuildingIds();
-  buildings.forEach(b => setMarkerVisible(b.id, vis.has(b.id)));
+  buildings.forEach(b => {
+    const m = markers[b.id];
+    if (!m) return;
+    if (vis.has(b.id)) {
+      if (!mapInst.hasLayer(m)) m.addTo(mapInst);
+      m.setOpacity(1);
+    } else if (fadeUnmatched) {
+      if (!mapInst.hasLayer(m)) m.addTo(mapInst);
+      m.setOpacity(0.3);
+    } else {
+      if (mapInst.hasLayer(m)) m.remove();
+    }
+  });
   updateRadiusCircles(vis);
-  // badge compteur sur le bouton
+  // badge compteur sur le bouton (véhicules + types)
   const dot = document.getElementById('filter-count');
   if (dot) {
-    if (filterTerms.length) { dot.textContent = filterTerms.length; dot.classList.add('show'); }
+    const n = filterTerms.length + selectedTypes.size;
+    if (n) { dot.textContent = n; dot.classList.add('show'); }
     else dot.classList.remove('show');
   }
 }
@@ -1251,6 +1297,27 @@ function onRadiusToggle() {
   applyFilters();
 }
 
+function onFadeToggle() {
+  fadeUnmatched = document.getElementById('fade-toggle').checked;
+  applyFilters();
+}
+
+function onTypeFilterClick(k) {
+  if (selectedTypes.has(k)) selectedTypes.delete(k);
+  else selectedTypes.add(k);
+  renderTypeFilter();
+  applyFilters();
+}
+
+function renderTypeFilter() {
+  const grid = document.getElementById('type-filter-grid');
+  if (!grid) return;
+  grid.innerHTML = Object.entries(TYPES).map(([k,t]) => `
+    <div class="fp-type-chip${selectedTypes.has(k)?' sel':''}" onclick="onTypeFilterClick('${k}')">
+      <span class="ftc-emoji">${t.emoji}</span><span class="ftc-name">${t.label}</span>
+    </div>`).join('');
+}
+
 function onRadiusKm() {
   const v = parseFloat(document.getElementById('radius-km').value);
   radiusKm = (isNaN(v) || v <= 0) ? 0 : v;
@@ -1259,12 +1326,14 @@ function onRadiusKm() {
 
 function clearFilter() {
   filterTerms = [];
+  selectedTypes.clear();
   setAddMode('replace');
   refreshFilterUI();
   applyFilters();
 }
 
 function refreshFilterUI() {
+  renderTypeFilter();
   // expression courante
   const expr = document.getElementById('filter-expr');
   if (expr) {
